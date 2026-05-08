@@ -11,6 +11,8 @@ import IdentityWidget from './components/IdentityWidget.jsx'
 import WalletConnectModal from './components/WalletConnectModal.jsx'
 import ToastHost from './components/ToastHost.jsx'
 import BoostProgressBanner from './components/BoostProgressBanner.jsx'
+import EventComposer from './components/EventComposer.jsx'
+import BoostExistingEvent from './components/BoostExistingEvent.jsx'
 import {
   loadSession, restoreSession, clearSession,
   saveProfile, loadCachedProfile, clearProfile,
@@ -270,12 +272,16 @@ function cancelPendingAction() {
 }
 
 // ── Show-boost modal signal ──────────────────────────────────────────────
+// Tri-state: null (closed) | { prefillMessage?: string } (open).
+// Wrapping the open flag in a state object lets callers pass a
+// prefilled boostagram message — used by the /newevent composer to
+// open the boost modal with the announcement text already filled in.
 const showBoostOpenListeners = new Set()
-let showBoostIsOpen = false
-function setShowBoostOpen(v) {
-  showBoostIsOpen = !!v
+let showBoostState = null
+function setShowBoostState(v) {
+  showBoostState = v || null
   for (const fn of showBoostOpenListeners) {
-    try { fn(showBoostIsOpen) } catch {}
+    try { fn(showBoostState) } catch {}
   }
 }
 
@@ -288,17 +294,18 @@ function BoostApp() {
 
 function ShowBoostHost() {
   const user = useSharedUser()
-  const [open, setOpenLocal] = useState(showBoostIsOpen)
+  const [state, setLocalState] = useState(showBoostState)
   useEffect(() => {
-    const fn = (v) => setOpenLocal(v)
+    const fn = (v) => setLocalState(v)
     showBoostOpenListeners.add(fn)
     return () => { showBoostOpenListeners.delete(fn) }
   }, [])
-  if (!open) return null
+  if (!state) return null
   return createPortal(
     <BoostModal
       user={user || null}
-      onClose={() => setShowBoostOpen(false)}
+      prefillMessage={state.prefillMessage || ''}
+      onClose={() => setShowBoostState(null)}
     />,
     document.body,
   )
@@ -422,6 +429,33 @@ function EpisodeBoostHost() {
   )
 }
 
+// ── Event composer host ──────────────────────────────────────────────────
+// Mounted into #lb-event-composer-slot on /newevent. Reuses the shared
+// user signal so sign-in state stays consistent with the identity
+// widget, and routes the boost-the-show side-effect through the gated
+// api.openShowBoost so wallet/login gates apply identically to the
+// homepage boost button.
+function EventComposerHost() {
+  const user = useSharedUser()
+  const realUser = (user && !isStubUser(user)) ? user : null
+  return (
+    <>
+      <BoostExistingEvent
+        sessionUser={realUser}
+        onRequestSignIn={() => api.requestLogin()}
+        onOpenShowBoostWithMessage={(msg) => api.openShowBoost({ prefillMessage: msg })}
+      />
+      <div className="mt-6">
+        <EventComposer
+          sessionUser={realUser}
+          onRequestSignIn={() => api.requestLogin()}
+          onOpenShowBoostWithMessage={(msg) => api.openShowBoost({ prefillMessage: msg })}
+        />
+      </div>
+    </>
+  )
+}
+
 // ── Identity slot host ───────────────────────────────────────────────────
 // Mounted into #lb-identity-slot. Reads user state + NWC state and
 // renders the persistent identity widget. All actions wired through the
@@ -470,6 +504,13 @@ const api = {
     if (identityEl) {
       identityEl.replaceChildren()
       createRoot(identityEl).render(<IdentityHost />)
+    }
+
+    // Event composer (only on /newevent — the slot only exists there)
+    const composerEl = document.getElementById('lb-event-composer-slot')
+    if (composerEl) {
+      composerEl.replaceChildren()
+      createRoot(composerEl).render(<EventComposerHost />)
     }
 
     // Always-mounted hosts for portal modals. We attach hidden divs
@@ -614,17 +655,19 @@ const api = {
    * per-domain permission can silently re-grant on a shared browser,
    * leaking one user's wallet to another's first boost click.
    */
-  async openShowBoost() {
+  async openShowBoost(opts = {}) {
+    const prefillMessage = typeof opts?.prefillMessage === 'string' ? opts.prefillMessage : ''
+
     // Gate 1: signed in?
     if (!currentUser || currentUser === undefined) {
-      setPendingAction(() => api.openShowBoost())
+      setPendingAction(() => api.openShowBoost({ prefillMessage }))
       api.requestLogin()
       return
     }
 
     // Gate 1.5: real user (not a stub)?
     if (isStubUser(currentUser)) {
-      setPendingAction(() => api.openShowBoost())
+      setPendingAction(() => api.openShowBoost({ prefillMessage }))
       ensureRealRestore()
       return
     }
@@ -639,20 +682,20 @@ const api = {
       wallet.ensureReady(currentUser)
         .then((ok) => {
           if (ok) {
-            api.openShowBoost()
+            api.openShowBoost({ prefillMessage })
           } else {
-            setPendingAction(() => api.openShowBoost())
+            setPendingAction(() => api.openShowBoost({ prefillMessage }))
             api.openWalletConnect()
           }
         })
         .catch(() => {
-          setPendingAction(() => api.openShowBoost())
+          setPendingAction(() => api.openShowBoost({ prefillMessage }))
           api.openWalletConnect()
         })
       return
     }
 
-    setShowBoostOpen(true)
+    setShowBoostState({ prefillMessage })
   },
 
   /**

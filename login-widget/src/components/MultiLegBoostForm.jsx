@@ -49,6 +49,7 @@ export default function MultiLegBoostForm({
   buttonLabel,
   lnurlCache = {},
   subtitle = null,
+  defaultMessage = '',
   onCancelled,
 }) {
   // Cancellation flag for the presign step. Set true when the form's
@@ -69,7 +70,13 @@ export default function MultiLegBoostForm({
   useEffect(() => wallet.onChange(setWalletStatus), [])
 
   const [amount, setAmount] = useState(presets ? String(presets[1] ?? presets[0]) : '1000')
-  const [message, setMessage] = useState('')
+  // `defaultMessage` is used by the /newevent composer to prefill an
+  // announcement boostagram. Re-seeded if the prop changes (e.g. the
+  // host opens a new boost session with different prefill text).
+  const [message, setMessage] = useState(defaultMessage || '')
+  useEffect(() => {
+    if (defaultMessage) setMessage(defaultMessage)
+  }, [defaultMessage])
   const [anonymous, setAnonymous] = useState(false)
   const [error, setError] = useState('')
 

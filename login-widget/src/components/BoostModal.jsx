@@ -47,7 +47,7 @@ const SHOW_EPISODE_META = { number: null, title: '', guid: '', kind: 'show' }
 const SHOW_PRESETS = [100, 210, 2100, 21000]
 const SHOW_SHARE_TAGLINE = 'Posts a kind 1 note to your followers — your message + a link back here.'
 
-export default function BoostModal({ user, onClose }) {
+export default function BoostModal({ user, onClose, prefillMessage = '' }) {
   const { visible, requestClose } = useModalTransition(onClose)
 
   useEffect(() => {
@@ -87,6 +87,7 @@ export default function BoostModal({ user, onClose }) {
               presets={SHOW_PRESETS}
               shareTagline={SHOW_SHARE_TAGLINE}
               buttonLabel="Boost the Show"
+              defaultMessage={prefillMessage}
               onCancelled={requestClose}
             />
           </div>
