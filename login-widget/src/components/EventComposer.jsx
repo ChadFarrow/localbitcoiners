@@ -186,7 +186,7 @@ export default function EventComposer({
 
   // ── Success panel ────────────────────────────────────────────────────
   if (published) {
-    const njumpUrl = `https://njump.me/${published.naddr}`
+    const manageUrl = sessionUser?.npub ? `https://mynostr.app/${sessionUser.npub}/events` : null
     return (
       <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-6">
         <h2 className="text-lg font-semibold text-neutral-100 mb-2">Meetup posted</h2>
@@ -198,14 +198,16 @@ export default function EventComposer({
           <code className="text-xs text-neutral-300 break-all">{published.naddr}</code>
         </div>
         <div className="flex flex-wrap gap-2">
-          <a
-            href={njumpUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 py-2 px-3 rounded bg-neutral-800 hover:bg-neutral-700 text-sm text-neutral-200 transition-colors"
-          >
-            View on njump.me
-          </a>
+          {manageUrl && (
+            <a
+              href={manageUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 py-2 px-3 rounded bg-neutral-800 hover:bg-neutral-700 text-sm text-neutral-200 transition-colors"
+            >
+              Manage your events
+            </a>
+          )}
           <button
             onClick={resetForNewEvent}
             className="inline-flex items-center gap-2 py-2 px-3 rounded bg-orange-500 hover:bg-orange-600 text-sm text-white transition-colors"
@@ -220,13 +222,26 @@ export default function EventComposer({
   // ── Composer body ────────────────────────────────────────────────────
   const userTz = getUserTimezone()
   const tzList = buildTzDropdownList(userTz)
+  const manageUrl = sessionUser?.npub ? `https://mynostr.app/${sessionUser.npub}/events` : null
 
   return (
     <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-5 sm:p-6 space-y-5 relative">
       <PasswordManagerHoneypot />
-      <h2 className="text-base font-semibold text-neutral-100">
-        List your meetup on Nostr
-      </h2>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <h2 className="text-base font-semibold text-neutral-100">
+          List your meetup on Nostr
+        </h2>
+        {manageUrl && (
+          <a
+            href={manageUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-orange-400 hover:text-orange-300 underline-offset-2 hover:underline whitespace-nowrap"
+          >
+            Manage your events ↗
+          </a>
+        )}
+      </div>
       {/* Title */}
       <div>
         <label className={labelCls}>Title</label>
