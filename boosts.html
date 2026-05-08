@@ -1069,15 +1069,30 @@
     const card = document.createElement('div')
     card.className = 'embed-note'
 
-    // naddr (long-form etc.) — out of scope to fully render; show a chip
-    // that links to njump.me.
+    // naddr (long-form, calendar event, etc.) — out of scope to fully
+    // render here; show a chip linking out to a Nostr client.
+    //
+    // NIP-52 calendar events (31922 date-based, 31923 time-based) go
+    // to mynostr.app, which has a dedicated events module that
+    // renders date/time/location/RSVP UI. mynostr's router accepts a
+    // bare naddr at the root and canonicalizes it to
+    //   /<authorNpub>/events/<naddr>
+    // so we just hand it the bech32 form. Everything else (long-form
+    // articles, marketplace listings, etc.) still falls through to
+    // njump.me as the generic fallback.
     if (seg.data.addressable) {
       card.classList.add('is-naddr')
       const link = document.createElement('a')
-      link.href = `https://njump.me/${seg.data.bech32}`
+      const naddrKind = seg.data.naddr?.kind
+      if (naddrKind === 31922 || naddrKind === 31923) {
+        link.href = `https://mynostr.app/${seg.data.bech32}`
+        link.textContent = '📅 Linked event on Nostr →'
+      } else {
+        link.href = `https://njump.me/${seg.data.bech32}`
+        link.textContent = '📄 Linked article on Nostr →'
+      }
       link.target = '_blank'
       link.rel = 'noopener noreferrer'
-      link.textContent = '📄 Linked article on Nostr →'
       card.appendChild(link)
       return card
     }
