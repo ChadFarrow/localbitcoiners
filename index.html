@@ -652,6 +652,61 @@
     }
     .btn-disabled:hover { background: transparent; color: var(--border); }
 
+    /* ── Subscribe-in-app dropdown (per episode card) ── */
+    /* Uses <details>/<summary> so the toggle is CSS-only — no per-card
+       state management. The doc-level click listener at the bottom of
+       the file handles close-on-outside-click. The "show URLs in each
+       app" don't change per episode (they're show-level), but the
+       dropdown lives on each card so visitors see it next to whatever
+       episode they're considering. */
+    .ep-subscribe { position: relative; display: inline-block; }
+    .btn-subscribe {
+      background: transparent;
+      color: var(--navy);
+      border: 1.5px solid var(--navy);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      list-style: none;
+      cursor: pointer;
+    }
+    .btn-subscribe::-webkit-details-marker { display: none; }
+    .btn-subscribe::marker { content: ''; }
+    .btn-subscribe:hover { background: var(--navy); color: var(--white); }
+    .btn-subscribe .caret {
+      font-size: 0.75em;
+      transition: transform 0.15s;
+    }
+    .ep-subscribe[open] .btn-subscribe { background: var(--navy); color: var(--white); }
+    .ep-subscribe[open] .btn-subscribe .caret { transform: rotate(180deg); }
+    .ep-subscribe-menu {
+      position: absolute;
+      top: calc(100% + 0.4rem);
+      left: 0;
+      z-index: 50;
+      min-width: 180px;
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+      padding: 0.35rem 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .ep-subscribe-menu a {
+      padding: 0.55rem 1rem;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 0.88rem;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      transition: background 0.12s, color 0.12s;
+    }
+    .ep-subscribe-menu a:hover {
+      background: rgba(247, 147, 26, 0.10);
+      color: var(--orange);
+    }
+
     /* ── Meetups Resource ── */
     #meetups { background: var(--white); }
     #meetups .section-body {
@@ -1098,6 +1153,47 @@
   let channelEl = null;
 
   /* ── render a single episode card ── */
+  // Subscribe-in-app dropdown — show-level URLs to the top podcasting
+  // 2.0 apps. Built as <details>/<summary> for CSS-only toggle; the
+  // close-on-outside-click handler is wired once at the bottom of this
+  // script.
+  //
+  //  - Fountain     web URL via show id from RSS
+  //  - Podcast Guru slug is "<title>-<itunesId>"
+  //  - Podverse     internal Podverse show id
+  //  - CurioCaster  pi<podcastIndexId>
+  //  - Castamatic   universal link via podcast:guid
+  const SUBSCRIBE_LINKS = [
+    { name: 'Fountain',     url: 'https://fountain.fm/show/Q48WBr6nT3mrbwMZ8ydY' },
+    { name: 'Podcast Guru', url: 'https://app.podcastguru.io/podcast/local-bitcoiners-1874589042' },
+    { name: 'Podverse',     url: 'https://podverse.fm/podcast/eKqrkoAVH' },
+    { name: 'CurioCaster',  url: 'https://curiocaster.com/podcast/pi7683299' },
+    { name: 'Castamatic',   url: 'https://castamatic.com/guid/56fbb1aa-da79-5e4b-bebc-3b934ab8914c' },
+  ];
+
+  function buildSubscribeDropdown() {
+    const details = document.createElement('details');
+    details.className = 'ep-subscribe';
+
+    const summary = document.createElement('summary');
+    summary.className = 'btn btn-subscribe';
+    summary.innerHTML = '📡 Subscribe <span class="caret" aria-hidden="true">▾</span>';
+    details.appendChild(summary);
+
+    const menu = document.createElement('div');
+    menu.className = 'ep-subscribe-menu';
+    for (const { name, url } of SUBSCRIBE_LINKS) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.textContent = name;
+      menu.appendChild(a);
+    }
+    details.appendChild(menu);
+    return details;
+  }
+
   function renderCard(item, index, total) {
     const title       = item.querySelector('title')?.textContent?.trim() ?? 'Episode';
     const pubDate     = item.querySelector('pubDate')?.textContent ?? '';
@@ -1241,6 +1337,13 @@
     });
     actions.appendChild(tx);
 
+    // Subscribe-in-app dropdown. Show-level URLs (don't change per
+    // episode) for the top podcasting 2.0 apps. Castamatic's universal
+    // link uses the show's podcast:guid; Podverse + CurioCaster don't
+    // expose stable show-page URLs we could verify, so they fall back
+    // to a search/homepage URL. Update verbatim if better URLs land.
+    actions.appendChild(buildSubscribeDropdown());
+
     if (splits) {
       const boostBtn = document.createElement('button');
       boostBtn.type = 'button';
@@ -1378,6 +1481,16 @@
       $error.style.display = 'block';
     }
   }
+
+  // Close any open subscribe dropdown when the user clicks outside it.
+  // <details>/<summary> handles its own toggle for clicks on the
+  // summary, but doesn't close on outside-click natively. One global
+  // listener covers every card without per-card setup.
+  document.addEventListener('click', (e) => {
+    document.querySelectorAll('details.ep-subscribe[open]').forEach(d => {
+      if (!d.contains(e.target)) d.removeAttribute('open');
+    });
+  });
 
   init();
 })();
