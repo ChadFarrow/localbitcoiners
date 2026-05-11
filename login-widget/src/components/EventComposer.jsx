@@ -1,12 +1,12 @@
 /**
  * EventComposer — single-shot meetup publisher for localbitcoiners.com/newevent.
  *
- * Slim adaptation of mynostr's EventComposer (779 lines → ~300):
- *   - no multi-draft store, no JSON import/export, no load-from-Nostr
- *   - no LocationAutocomplete (plain text input)
- *   - native <input type="date|time"> instead of a custom TimePicker
- *   - kept: Blossom image upload + URL paste, kind 31922/31923 split,
- *     tz dropdown, hashtag parsing, sign-in gate, success panel
+ * Visually styled with the LB cream-card design system (defined in
+ * styles.css under "/newevent cream-card design system") so the
+ * composer reads like the rest of the site rather than a foreign
+ * dark widget. Layout primitives still use Tailwind utility classes;
+ * theme-bearing classes (lb-card, lb-input, lb-btn, etc.) carry the
+ * cream/navy/orange palette.
  *
  * After a successful publish, two optional side-effects can fire:
  *   - share-to-nostr  → kind 1 announcement quoting the event
@@ -16,7 +16,7 @@
  * Both checkboxes are independent. Failures of either side-effect are
  * swallowed so the underlying event-publish stays the source of truth.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { isSafeUrl } from '../lib/utils.js'
 import { uploadToBlossom } from '../lib/blossom.js'
 import {
@@ -25,6 +25,9 @@ import {
   COMMON_TZIDS,
   buildTzDropdownList,
   formToPublishShape,
+  eventToForm,
+  formToEventTemplate,
+  fetchEventForLoader,
 } from '../lib/eventForm.js'
 import { publishCalendarEvent } from '../lib/eventPublish.js'
 import {
@@ -35,14 +38,9 @@ import {
   interpolateNaddr,
 } from '../lib/eventAnnouncement.js'
 import PasswordManagerHoneypot from './PasswordManagerHoneypot.jsx'
+import ImportExportDisclosure from './ImportExportDisclosure.jsx'
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
-
-const inputCls =
-  'w-full bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-sm text-neutral-100 ' +
-  'focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/30'
-
-const labelCls = 'block text-xs font-medium text-neutral-400 mb-1'
 
 // Suppress password-manager autofill across the whole composer. None
 // of these fields should ever be picked up by LastPass / 1Password /
@@ -52,9 +50,6 @@ const labelCls = 'block text-xs font-medium text-neutral-400 mb-1'
 // were getting bypassed by their label-heuristic fallbacks. The
 // browser-rendered clear-X button on search inputs is hidden in
 // styles.css so the field still reads as a plain text input.
-//
-// Spellcheck / autocorrect are intentionally NOT disabled — the
-// description and announcement textareas want normal text editing.
 const NO_AUTOFILL = {
   autoComplete: 'off',
   'data-lpignore': 'true',
@@ -80,12 +75,106 @@ export default function EventComposer({
   const [publishing, setPublishing] = useState(false)
   const [published, setPublished] = useState(null) // {naddr, eventId, dTag, kind, pubkey}
 
+  // Import / Export Options disclosure state.
+  const [naddrInput, setNaddrInput] = useState('')
+  const [naddrError, setNaddrError] = useState('')
+  const [naddrLoading, setNaddrLoading] = useState(false)
+  const [importError, setImportError] = useState('')
+  const [importLoading, setImportLoading] = useState(false)
+
   const fileInputRef = useRef(null)
 
   const updateForm = useCallback((patch) => {
     setError('')
     setForm(prev => ({ ...prev, ...patch }))
   }, [])
+
+  // ── Import / Export Options handlers ────────────────────────────────
+
+  const handleImportFile = useCallback(async (file) => {
+    setImportError('')
+    if (!file) return
+    if (!file.name.endsWith('.json') && file.type !== 'application/json') {
+      setImportError('Please pick a .json file.')
+      return
+    }
+    if (file.size > 1_000_000) {
+      setImportError('File too large — 1 MB max.')
+      return
+    }
+    setImportLoading(true)
+    try {
+      const text = await file.text()
+      const ev = JSON.parse(text)
+      const snapshot = eventToForm(ev)
+      if (!snapshot) {
+        setImportError('Not a kind 31922/31923 event.')
+        return
+      }
+      // Cross-author import → strip the imported dTag so publishing
+      // creates a new event under the user's pubkey instead of trying
+      // to inherit the original author's identifier.
+      const myPubkey = sessionUser?.pubkey
+      if (ev.pubkey && myPubkey && ev.pubkey !== myPubkey) {
+        snapshot.dTag = ''
+      }
+      setForm(snapshot)
+      setError('')
+    } catch (e) {
+      setImportError(`Invalid JSON: ${e?.message || 'parse failed'}`)
+    } finally {
+      setImportLoading(false)
+    }
+  }, [sessionUser])
+
+  const handleNaddrLoad = useCallback(async () => {
+    const trimmed = naddrInput.trim()
+    if (!trimmed) return
+    setNaddrError('')
+    setNaddrLoading(true)
+    try {
+      const r = await fetchEventForLoader(trimmed)
+      if (!r.ok) {
+        setNaddrError(r.error || 'Load failed.')
+        return
+      }
+      let snapshot = r.snapshot
+      const myPubkey = sessionUser?.pubkey
+      if (r.importedFromPubkey && myPubkey && r.importedFromPubkey !== myPubkey) {
+        snapshot = { ...snapshot, dTag: '' }
+      }
+      setForm(snapshot)
+      setNaddrInput('')
+      setError('')
+    } catch (e) {
+      setNaddrError(e?.message || 'Load failed.')
+    } finally {
+      setNaddrLoading(false)
+    }
+  }, [naddrInput, sessionUser])
+
+  const handleExport = useCallback(() => {
+    if (!form?.title?.trim() || !form?.startDate) return
+    try {
+      const ev = formToEventTemplate(form, { pubkey: sessionUser?.pubkey || '' })
+      const blob = new Blob([JSON.stringify(ev, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const slug = (form.title || 'event')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 50) || 'event'
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${slug}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch {
+      // Safety net — disabled in the UI when title/start are missing.
+    }
+  }, [form, sessionUser])
 
   const handleImageFile = useCallback(async (file) => {
     if (!file || imageUploading) return
@@ -137,7 +226,6 @@ export default function EventComposer({
             pubkey: result.pubkey,
             dTag: result.dTag,
           })
-          // Fire-and-forget — a slow signer/relay shouldn't pin the UI.
           publishEventAnnouncement(tmpl).catch(() => {})
         } catch {}
       }
@@ -170,14 +258,11 @@ export default function EventComposer({
   // ── Sign-in gate ─────────────────────────────────────────────────────
   if (!sessionUser?.pubkey) {
     return (
-      <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-6 text-center">
-        <p className="text-sm text-neutral-300 mb-4">
+      <div className="lb-card text-center">
+        <p className="mb-4" style={{ color: 'var(--text)' }}>
           Sign in with Nostr to post your meetup.
         </p>
-        <button
-          onClick={() => onRequestSignIn?.()}
-          className="inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded bg-orange-500 hover:bg-orange-600 text-sm font-medium text-white transition-colors"
-        >
+        <button onClick={() => onRequestSignIn?.()} className="lb-btn lb-btn-primary">
           Sign in
         </button>
       </div>
@@ -188,30 +273,26 @@ export default function EventComposer({
   if (published) {
     const manageUrl = sessionUser?.npub ? `https://mynostr.app/${sessionUser.npub}/events` : null
     return (
-      <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-6">
-        <h2 className="text-lg font-semibold text-neutral-100 mb-2">Meetup posted</h2>
-        <p className="text-sm text-neutral-400 mb-4">
+      <div className="lb-card">
+        <h2 className="lb-card-heading" style={{ marginBottom: '0.5rem' }}>Meetup posted</h2>
+        <p style={{ color: 'var(--muted)', marginBottom: '1rem' }}>
           Your meetup is live on Nostr. Anyone with a Nostr client can find and RSVP to it.
         </p>
-        <div className="bg-neutral-950 border border-neutral-800 rounded p-3 mb-4">
-          <div className="text-xs text-neutral-500 mb-1">Event address (naddr)</div>
-          <code className="text-xs text-neutral-300 break-all">{published.naddr}</code>
+        <div className="lb-inset" style={{ marginBottom: '1rem' }}>
+          <div style={{ fontSize: '0.72rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.3rem' }}>
+            Event address (naddr)
+          </div>
+          <code style={{ fontSize: '0.78rem', color: 'var(--text)', wordBreak: 'break-all', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+            {published.naddr}
+          </code>
         </div>
         <div className="flex flex-wrap gap-2">
           {manageUrl && (
-            <a
-              href={manageUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 py-2 px-3 rounded bg-neutral-800 hover:bg-neutral-700 text-sm text-neutral-200 transition-colors"
-            >
+            <a href={manageUrl} target="_blank" rel="noopener noreferrer" className="lb-btn lb-btn-secondary">
               Manage your events
             </a>
           )}
-          <button
-            onClick={resetForNewEvent}
-            className="inline-flex items-center gap-2 py-2 px-3 rounded bg-orange-500 hover:bg-orange-600 text-sm text-white transition-colors"
-          >
+          <button onClick={resetForNewEvent} className="lb-btn lb-btn-primary">
             Post another meetup
           </button>
         </div>
@@ -225,32 +306,52 @@ export default function EventComposer({
   const manageUrl = sessionUser?.npub ? `https://mynostr.app/${sessionUser.npub}/events` : null
 
   return (
-    <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-5 sm:p-6 space-y-5 relative">
+    <div className="lb-card relative space-y-5">
       <PasswordManagerHoneypot />
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h2 className="text-base font-semibold text-neutral-100">
-          List your meetup on Nostr
-        </h2>
+        <h2 className="lb-card-heading">List your meetup on Nostr</h2>
         {manageUrl && (
           <a
             href={manageUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-orange-400 hover:text-orange-300 underline-offset-2 hover:underline whitespace-nowrap"
+            style={{ color: 'var(--orange)', fontSize: '0.85rem', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}
+            onMouseEnter={e => e.currentTarget.style.textDecoration = 'underline'}
+            onMouseLeave={e => e.currentTarget.style.textDecoration = 'none'}
           >
             Manage your events ↗
           </a>
         )}
       </div>
+
+      <ImportExportDisclosure
+        acceptedFileTypes=".json,application/json"
+        onImportFile={handleImportFile}
+        importLabel="Upload JSON"
+        importTitle="Import a kind 31922/31923 JSON file"
+        importLoading={importLoading}
+        importError={importError}
+        pasteIdValue={naddrInput}
+        onPasteIdChange={(v) => { setNaddrInput(v); if (naddrError) setNaddrError('') }}
+        onLoadId={handleNaddrLoad}
+        pasteIdPlaceholder="naddr1… / nevent1…"
+        loadLoading={naddrLoading}
+        loadError={naddrError}
+        exportLabel="Export JSON"
+        onExport={handleExport}
+        exportDisabled={!form.title?.trim() || !form.startDate}
+        exportTitle="Export current event as JSON"
+      />
+
       {/* Title */}
       <div>
-        <label className={labelCls}>Title</label>
+        <label className="lb-label">Title</label>
         <input
           type="search"
           value={form.title}
           onChange={e => updateForm({ title: e.target.value })}
           placeholder="e.g. Western Mass Bitcoin Meetup"
-          className={inputCls}
+          className="lb-input"
           maxLength={140}
           {...NO_AUTOFILL}
         />
@@ -258,23 +359,24 @@ export default function EventComposer({
 
       {/* Description */}
       <div>
-        <label className={labelCls}>Description</label>
+        <label className="lb-label">Description</label>
         <textarea
           value={form.description}
           onChange={e => updateForm({ description: e.target.value })}
           placeholder="What is this meetup about? Markdown OK."
-          className={inputCls + ' min-h-[120px] resize-y leading-relaxed'}
+          className="lb-input"
+          style={{ minHeight: '120px', resize: 'vertical', lineHeight: 1.55 }}
           {...NO_AUTOFILL}
         />
       </div>
 
       {/* All-day toggle */}
-      <label className="flex items-center gap-2 text-sm text-neutral-300 cursor-pointer">
+      <label className="lb-check-row" style={{ alignItems: 'center' }}>
         <input
           type="checkbox"
           checked={form.allDay}
           onChange={e => updateForm({ allDay: e.target.checked })}
-          className="accent-orange-500"
+          style={{ marginTop: 0 }}
         />
         <span>All-day event (no specific time)</span>
       </label>
@@ -282,45 +384,49 @@ export default function EventComposer({
       {/* Date / time */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label className={labelCls}>Start date</label>
+          <label className="lb-label">Start date</label>
           <input
             type="date"
             value={form.startDate}
             onChange={e => updateForm({ startDate: e.target.value })}
-            className={inputCls}
+            className="lb-input"
             {...NO_AUTOFILL}
           />
         </div>
         {!form.allDay && (
           <div>
-            <label className={labelCls}>Start time</label>
+            <label className="lb-label">Start time</label>
             <input
               type="time"
               value={form.startTime}
               onChange={e => updateForm({ startTime: e.target.value })}
-              className={inputCls}
+              className="lb-input"
               {...NO_AUTOFILL}
             />
           </div>
         )}
         <div>
-          <label className={labelCls}>End date <span className="text-neutral-600">(optional)</span></label>
+          <label className="lb-label">
+            End date <span style={{ color: 'var(--muted)', textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>(optional)</span>
+          </label>
           <input
             type="date"
             value={form.endDate}
             onChange={e => updateForm({ endDate: e.target.value })}
-            className={inputCls}
+            className="lb-input"
             {...NO_AUTOFILL}
           />
         </div>
         {!form.allDay && (
           <div>
-            <label className={labelCls}>End time <span className="text-neutral-600">(optional)</span></label>
+            <label className="lb-label">
+              End time <span style={{ color: 'var(--muted)', textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>(optional)</span>
+            </label>
             <input
               type="time"
               value={form.endTime}
               onChange={e => updateForm({ endTime: e.target.value })}
-              className={inputCls}
+              className="lb-input"
               {...NO_AUTOFILL}
             />
           </div>
@@ -330,11 +436,11 @@ export default function EventComposer({
       {/* Timezone (only shown for time-based events) */}
       {!form.allDay && (
         <div>
-          <label className={labelCls}>Timezone</label>
+          <label className="lb-label">Timezone</label>
           <select
             value={form.tzid}
             onChange={e => updateForm({ tzid: e.target.value })}
-            className={inputCls}
+            className="lb-input"
             {...NO_AUTOFILL}
           >
             {tzList.map(tz => (
@@ -348,20 +454,22 @@ export default function EventComposer({
 
       {/* Location */}
       <div>
-        <label className={labelCls}>Location</label>
+        <label className="lb-label">Location</label>
         <input
           type="search"
           value={form.location}
           onChange={e => updateForm({ location: e.target.value })}
           placeholder="Venue, city, or 'Online'"
-          className={inputCls}
+          className="lb-input"
           {...NO_AUTOFILL}
         />
       </div>
 
       {/* Image */}
       <div>
-        <label className={labelCls}>Image <span className="text-neutral-600">(optional)</span></label>
+        <label className="lb-label">
+          Image <span style={{ color: 'var(--muted)', textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>(optional)</span>
+        </label>
         <div className="space-y-2">
           <input
             type="search"
@@ -369,7 +477,7 @@ export default function EventComposer({
             value={form.image}
             onChange={e => updateForm({ image: e.target.value })}
             placeholder="https://… (or upload below)"
-            className={inputCls}
+            className="lb-input"
             {...NO_AUTOFILL}
           />
           <div className="flex items-center gap-2">
@@ -377,7 +485,7 @@ export default function EventComposer({
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={imageUploading}
-              className="text-xs text-orange-400 hover:text-orange-300 disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{ color: 'var(--orange)', fontSize: '0.85rem', fontWeight: 600, background: 'none', border: 'none', cursor: imageUploading ? 'not-allowed' : 'pointer', opacity: imageUploading ? 0.5 : 1, padding: 0 }}
             >
               {imageUploading ? 'Uploading…' : 'Upload from device (Blossom)'}
             </button>
@@ -393,38 +501,39 @@ export default function EventComposer({
               }}
             />
           </div>
-          {imageError && <p className="text-xs text-red-400">{imageError}</p>}
+          {imageError && <p style={{ color: '#b53b06', fontSize: '0.8rem', margin: 0 }}>{imageError}</p>}
           {form.image && isSafeUrl(form.image) && (
-            <img src={form.image} alt="" className="max-h-40 rounded border border-neutral-800" />
+            <img src={form.image} alt="" style={{ maxHeight: '10rem', borderRadius: '6px', border: '1px solid var(--border)' }} />
           )}
         </div>
       </div>
 
       {/* Hashtags */}
       <div>
-        <label className={labelCls}>Hashtags <span className="text-neutral-600">(space or comma separated)</span></label>
+        <label className="lb-label">
+          Hashtags <span style={{ color: 'var(--muted)', textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>(space or comma separated)</span>
+        </label>
         <input
           type="search"
           value={form.hashtags}
           onChange={e => updateForm({ hashtags: e.target.value })}
           placeholder="#meetup #localbitcoiners"
-          className={inputCls}
+          className="lb-input"
           {...NO_AUTOFILL}
         />
       </div>
 
       {/* Share-to-Nostr checkbox + editable textarea */}
-      <div className="border-t border-neutral-800 pt-5 space-y-3">
-        <label className="flex items-start gap-2 text-sm text-neutral-200 cursor-pointer">
+      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1.1rem' }} className="space-y-3">
+        <label className="lb-check-row">
           <input
             type="checkbox"
             checked={shareToNostr}
             onChange={e => setShareToNostr(e.target.checked)}
-            className="accent-orange-500 mt-0.5"
           />
           <span>
             Also share an announcement note on Nostr
-            <span className="block text-xs text-neutral-500 mt-0.5">
+            <span className="lb-check-sub">
               Posts a kind 1 note from your npub - event {'{naddr}'} will be included with your boost message
             </span>
           </span>
@@ -433,7 +542,8 @@ export default function EventComposer({
           <textarea
             value={shareText}
             onChange={e => setShareText(e.target.value)}
-            className={inputCls + ' min-h-[90px] resize-y leading-relaxed'}
+            className="lb-input"
+            style={{ minHeight: '90px', resize: 'vertical', lineHeight: 1.55 }}
             {...NO_AUTOFILL}
           />
         )}
@@ -441,16 +551,15 @@ export default function EventComposer({
 
       {/* Boost-the-show checkbox + editable textarea */}
       <div className="space-y-3">
-        <label className="flex items-start gap-2 text-sm text-neutral-200 cursor-pointer">
+        <label className="lb-check-row">
           <input
             type="checkbox"
             checked={boostShow}
             onChange={e => setBoostShow(e.target.checked)}
-            className="accent-orange-500 mt-0.5"
           />
           <span>
             Announce your meetup with a boost to the show
-            <span className="block text-xs text-neutral-500 mt-0.5">
+            <span className="lb-check-sub">
               Event {'{naddr}'} will be included with your boost message
             </span>
           </span>
@@ -459,31 +568,29 @@ export default function EventComposer({
           <textarea
             value={boostText}
             onChange={e => setBoostText(e.target.value)}
-            className={inputCls + ' min-h-[80px] resize-y leading-relaxed'}
+            className="lb-input"
+            style={{ minHeight: '80px', resize: 'vertical', lineHeight: 1.55 }}
             {...NO_AUTOFILL}
           />
         )}
       </div>
 
       {/* Error + publish */}
-      {error && (
-        <div className="text-sm text-red-400 bg-red-950/30 border border-red-900 rounded px-3 py-2">
-          {error}
-        </div>
-      )}
+      {error && <div className="lb-error">{error}</div>}
       <button
         onClick={handlePublish}
         disabled={publishing}
-        className="w-full inline-flex items-center justify-center gap-2 py-3 rounded bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium text-white transition-colors"
+        className="lb-btn lb-btn-primary"
+        style={{ width: '100%', padding: '0.85rem 1.15rem', fontSize: '1rem' }}
       >
         {publishing ? (
           <>
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-white animate-pulse" aria-hidden="true" />
+            <span style={{ display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', background: '#fff', opacity: 0.85 }} className="animate-pulse" aria-hidden="true" />
             Publishing…
           </>
         ) : (
           <>
-            <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor" className="lb-btn-publish-bolt" aria-hidden="true">
               <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" />
             </svg>
             Publish Meetup

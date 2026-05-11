@@ -34,3 +34,206 @@ input[type="search"]::-webkit-search-results-decoration {
 .lb-boost-banner-glow {
   animation: lb-boost-banner-glow 2.4s ease-in-out infinite;
 }
+
+/* ──────────────────────────────────────────────────────────────────────
+   /newevent cream-card design system
+   ──────────────────────────────────────────────────────────────────────
+   The /newevent composer used to be a dark-themed widget pasted onto
+   the cream LB page — visually out of place. These utility classes
+   re-skin the composer (+ boost-existing card + import/export
+   disclosure) to match the rest of the site's note-card / form
+   language. Variables (--cream, --navy, --orange, etc.) are defined
+   in newevent.html alongside the other page styles. */
+
+/* Inherit the site's serif font on the composer slot so cards read
+   like the rest of the page instead of a system-sans embed. */
+#lb-event-composer-slot,
+#lb-event-composer-slot * {
+  font-family: 'Source Serif 4', Georgia, serif;
+}
+
+/* Card — main panel. Background matches boosts.html's .note-card
+   (var(--cream)); the 1px border + orange left-accent + soft navy
+   shadow do the delineation. */
+.lb-card {
+  background: var(--cream);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--orange);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(30, 58, 95, 0.06);
+  padding: 1.5rem 1.6rem;
+  color: var(--text);
+}
+@media (max-width: 600px) {
+  .lb-card { padding: 1.15rem 1.15rem; }
+}
+
+/* Card heading — Playfair to match section titles. */
+.lb-card-heading {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--navy);
+  line-height: 1.3;
+}
+
+/* Subdued helper / hint text. */
+.lb-muted {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* Field label. */
+.lb-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--navy);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 0.3rem;
+}
+
+/* Inputs / textareas / selects. */
+.lb-input {
+  width: 100%;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.55rem 0.7rem;
+  color: var(--text);
+  font-size: 0.95rem;
+  font-family: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.lb-input::placeholder { color: #b3a487; }
+.lb-input:focus {
+  outline: none;
+  border-color: var(--orange);
+  box-shadow: 0 0 0 3px rgba(247, 147, 26, 0.25);
+}
+.lb-input:disabled {
+  background: var(--cream-d);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+/* Inset / nested panel — sits inside a cream card, so it uses off-
+   white to stand out as a "shown data" block. */
+.lb-inset {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.7rem 0.85rem;
+}
+
+/* Buttons. Match the site-level .btn / .btn-primary / .btn-outline so
+   the composer's CTAs feel like the rest of the page. */
+.lb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.55rem 1.15rem;
+  border-radius: 5px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, opacity 0.15s;
+}
+.lb-btn-primary {
+  background: var(--orange);
+  color: #fff;
+}
+.lb-btn-primary:hover { background: var(--orange-d); color: #fff; }
+.lb-btn-primary:disabled {
+  background: var(--cream-d);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.lb-btn-secondary {
+  background: transparent;
+  color: var(--navy);
+  border: 1.5px solid var(--navy);
+}
+.lb-btn-secondary:hover {
+  background: var(--navy);
+  color: var(--white);
+}
+.lb-btn-secondary:disabled {
+  background: transparent;
+  color: var(--border);
+  border-color: var(--border);
+  cursor: not-allowed;
+}
+
+.lb-btn-publish-bolt { width: 14px; height: 14px; flex-shrink: 0; }
+
+/* Error message strip. */
+.lb-error {
+  background: #fef2e6;
+  border: 1px solid #f0c5a0;
+  color: #8a3b06;
+  padding: 0.55rem 0.85rem;
+  border-radius: 6px;
+  font-size: 0.88rem;
+}
+
+/* Checkbox + label rows. */
+.lb-check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  cursor: pointer;
+  color: var(--text);
+}
+.lb-check-row input[type="checkbox"] {
+  accent-color: var(--orange);
+  margin-top: 0.2rem;
+}
+.lb-check-row .lb-check-sub {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 0.15rem;
+}
+
+/* Divider between sections inside a card. */
+.lb-divider {
+  border-top: 1px solid var(--border);
+  margin: 0.25rem 0 0;
+}
+
+/* Import / Export disclosure — sits at the top of the composer card.
+   Subtle cream-tinted rounded box that doesn't fight the main card. */
+.lb-disclosure {
+  border: 1px solid var(--border);
+  background: var(--white);
+  border-radius: 8px;
+}
+.lb-disclosure[open] { background: var(--white); }
+.lb-disclosure summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.55rem 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--navy);
+  user-select: none;
+}
+.lb-disclosure summary::-webkit-details-marker { display: none; }
+.lb-disclosure summary .lb-caret {
+  width: 10px;
+  height: 10px;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+.lb-disclosure[open] summary .lb-caret { transform: rotate(90deg); }

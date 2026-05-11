@@ -237,9 +237,11 @@
       padding: 2.5rem 1.25rem 4rem;
     }
 
-    /* The slot itself is dark-themed (Tailwind-class composer) — let it
-       breathe inside the cream page background. */
-    #lb-event-composer-slot { color-scheme: dark; }
+    /* Composer cards inside the slot follow the LB cream design system
+       (defined in the widget's styles.css). Force the light color
+       scheme so native date/time pickers render light rather than
+       inheriting any prior dark hint. */
+    #lb-event-composer-slot { color-scheme: light; }
 
     /* ── Footer ── */
     footer {

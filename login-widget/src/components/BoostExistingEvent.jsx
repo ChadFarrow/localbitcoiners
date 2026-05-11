@@ -2,21 +2,17 @@
  * BoostExistingEvent — secondary card on /newevent.
  *
  * For organizers whose meetup is already published on Nostr (e.g. via
- * Flockstr): paste the naddr, click Boost, and the existing show-boost
- * modal opens with `nostr:<naddr>` prefilled into the boostagram
- * message. No other text — the user can add their own commentary on
- * top in the modal's textarea before sending.
+ * Flockstr): paste the naddr, optionally tweak the boost message, and
+ * the existing show-boost modal opens with the assembled boostagram
+ * message prefilled. The naddr is substituted in (or appended) via the
+ * shared interpolateNaddr helper.
+ *
+ * Visually styled with the LB cream-card design system; see styles.css.
  */
 import { useState } from 'react'
 import { nip19 } from 'nostr-tools'
 import { interpolateNaddr } from '../lib/eventAnnouncement.js'
 import PasswordManagerHoneypot from './PasswordManagerHoneypot.jsx'
-
-const inputCls =
-  'w-full bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-sm text-neutral-100 ' +
-  'focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/30'
-
-const labelCls = 'block text-xs font-medium text-neutral-400 mb-1'
 
 const NO_AUTOFILL = {
   autoComplete: 'off',
@@ -64,13 +60,15 @@ export default function BoostExistingEvent({
   }
 
   return (
-    <div className="bg-neutral-900 border border-neutral-800 rounded-lg p-5 sm:p-6 space-y-3 relative">
+    <div className="lb-card relative space-y-3">
       <PasswordManagerHoneypot />
-      <h2 className="text-base font-semibold text-neutral-100">
+      <h2 className="lb-card-heading">
         Is your meetup already on Nostr? Boost it here!
       </h2>
       <div>
-        <label className={labelCls}>Event address</label>
+        <label className="lb-label" style={{ textTransform: 'none', letterSpacing: 0 }}>
+          Calendar addressable event ID (naddr1) on nostr
+        </label>
         <input
           type="search"
           value={input}
@@ -80,31 +78,32 @@ export default function BoostExistingEvent({
           autoCapitalize="off"
           autoCorrect="off"
           {...NO_AUTOFILL}
-          className={inputCls + ' font-mono text-xs'}
+          className="lb-input"
+          style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '0.78rem' }}
         />
       </div>
       <div>
-        <label className={labelCls}>Boost message <span className="text-neutral-600">(editable)</span></label>
+        <label className="lb-label">
+          Boost message <span style={{ color: 'var(--muted)', textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>(editable)</span>
+        </label>
         <textarea
           value={message}
           onChange={e => setMessage(e.target.value)}
-          className={inputCls + ' min-h-[90px] resize-y leading-relaxed'}
+          className="lb-input"
+          style={{ minHeight: '90px', resize: 'vertical', lineHeight: 1.55 }}
           {...NO_AUTOFILL}
         />
-        <p className="text-xs text-neutral-500 mt-1">
-          Event <code className="bg-neutral-800 px-1 py-0.5 rounded">{'{naddr}'}</code> will be included with your boost message
+        <p style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: '0.35rem' }}>
+          Event{' '}
+          <code style={{ background: 'var(--white)', padding: '0.05rem 0.3rem', borderRadius: '4px', border: '1px solid var(--border)' }}>
+            {'{naddr}'}
+          </code>{' '}
+          will be included with your boost message
         </p>
       </div>
-      {error && (
-        <p className="text-sm text-red-400 bg-red-950/30 border border-red-900 rounded px-3 py-2">
-          {error}
-        </p>
-      )}
-      <button
-        onClick={handleBoost}
-        className="w-full inline-flex items-center justify-center gap-2 py-3 rounded bg-orange-500 hover:bg-orange-600 text-sm font-medium text-white transition-colors"
-      >
-        <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4" aria-hidden="true">
+      {error && <div className="lb-error">{error}</div>}
+      <button onClick={handleBoost} className="lb-btn lb-btn-primary" style={{ width: '100%', padding: '0.85rem 1.15rem', fontSize: '1rem' }}>
+        <svg viewBox="0 0 24 24" fill="currentColor" className="lb-btn-publish-bolt" aria-hidden="true">
           <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" />
         </svg>
         Boost this meetup
