@@ -1,6 +1,9 @@
 CLAUDE_CODE_HANDOFF.md
 .DS_Store
 
+# --- Wrangler local dev server scratch (created by `wrangler pages dev`) ---
+.wrangler/
+
 # --- Bots: operational state (regenerable from Alby Hub / Nostr) ---
 bots/**/state.json
 bots/**/state.json.bak

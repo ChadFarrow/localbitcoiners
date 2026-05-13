@@ -569,6 +569,16 @@
       color: var(--navy);
       line-height: 1.3;
     }
+    .episode-title a {
+      color: inherit;
+      text-decoration: none;
+    }
+    .episode-title a:hover {
+      color: var(--orange);
+      text-decoration: underline;
+      text-underline-offset: 4px;
+      text-decoration-thickness: 1.5px;
+    }
     .episode-date {
       font-size: 0.85rem;
       color: var(--muted);
@@ -603,6 +613,7 @@
       display: inline-block;
       padding: 0.45rem 1.1rem;
       border-radius: 5px;
+      font: inherit;
       font-size: 0.88rem;
       font-weight: 600;
       letter-spacing: 0.03em;
@@ -611,6 +622,7 @@
       border: none;
       transition: background 0.15s, color 0.15s, opacity 0.15s;
     }
+    .btn:disabled { opacity: 0.7; cursor: wait; }
     .btn-primary {
       background: var(--navy);
       color: var(--white);
@@ -1244,7 +1256,10 @@
     header.appendChild(numSpan);
     const titleEl = document.createElement('h3');
     titleEl.className = 'episode-title';
-    titleEl.textContent = title;
+    const titleLink = document.createElement('a');
+    titleLink.href = `/ep${pad(epNum)}`;
+    titleLink.textContent = title;
+    titleEl.appendChild(titleLink);
     header.appendChild(titleEl);
     card.appendChild(header);
 
@@ -1281,16 +1296,52 @@
     actions.className = 'episode-actions';
 
     if (mp3) {
-      const dl = document.createElement('a');
-      dl.className = 'btn btn-primary';
+      // Chrome ignores the <a download> attribute cross-origin when the
+      // server doesn't send Content-Disposition: attachment, so the
+      // browser opens the audio inline in a new tab. Fountain's CDN
+      // does send Access-Control-Allow-Origin: *, so we can fetch the
+      // bytes, wrap them in a Blob, and trigger a real download via a
+      // synthetic anchor. If fetch fails (offline, CORS regression),
+      // fall back to opening the URL so the user can right-click → Save.
+      let isSafeMp3 = false;
       try {
         const u = new URL(mp3);
-        if (u.protocol === 'http:' || u.protocol === 'https:') {
-          dl.href = mp3;
-        }
+        isSafeMp3 = u.protocol === 'http:' || u.protocol === 'https:';
       } catch {}
-      dl.download = '';
+      const dl = document.createElement('button');
+      dl.type = 'button';
+      dl.className = 'btn btn-primary';
       dl.textContent = '↓ Download MP3';
+      if (!isSafeMp3) {
+        dl.disabled = true;
+      } else {
+        const filename = `local-bitcoiners-ep${pad(epNum)}.mp3`;
+        dl.addEventListener('click', async () => {
+          const prev = dl.textContent;
+          dl.disabled = true;
+          dl.textContent = 'Downloading…';
+          try {
+            const resp = await fetch(mp3);
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const blob = await resp.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 200);
+            dl.textContent = prev;
+            dl.disabled = false;
+          } catch (e) {
+            console.warn('[lb] mp3 download failed', e);
+            dl.textContent = prev;
+            dl.disabled = false;
+            window.open(mp3, '_blank', 'noopener');
+          }
+        });
+      }
       actions.appendChild(dl);
     }
 

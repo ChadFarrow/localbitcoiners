@@ -1,0 +1,699 @@
+// Intercepts /ep### URLs (e.g. /ep011) and returns a server-rendered
+// HTML page for that episode. Everything else falls through via
+// context.next() — middleware is path-agnostic by default in Cloudflare
+// Pages, so the regex match is the gate.
+//
+// The page is rendered server-side at the edge so social-preview
+// crawlers (Nostr, X, iMessage, etc.) read episode-specific OG tags
+// from the raw HTML. Client-side rendering would have given every
+// shared link the generic site preview, which defeats the whole point.
+
+const RSS_URL = "https://feeds.fountain.fm/uv4pyDVtNAiiCCx5emOU";
+const SITE_ORIGIN = "https://localbitcoiners.com";
+const OG_IMAGE = `${SITE_ORIGIN}/assets/LocalBitcoiners_banner_YT.jpg`;
+const FETCH_TIMEOUT_MS = 10_000;
+const RESPONSE_MAX_BYTES = 5 * 1024 * 1024;
+
+// Single-segment /ep### where ### is 1–4 digits. Trailing slash tolerated.
+const EP_PATH_RE = /^\/ep(\d{1,4})\/?$/;
+
+// Hosts are stable across the series — render them server-side with
+// fixed names + Nostr profile URLs that mirror the homepage's Hosts
+// section. The `npub` is included so the client-side enhance script
+// can upgrade the avatar (display name stays static since "Reed" /
+// "Rev Hodl" are the brand-canonical labels regardless of Nostr
+// kind-0 metadata).
+// Subscribe-in-app dropdown URLs (show-level, not per-episode). Mirrors
+// the SUBSCRIBE_LINKS array on the homepage card; keep in sync.
+const SUBSCRIBE_LINKS = [
+  { name: "Fountain",     url: "https://fountain.fm/show/Q48WBr6nT3mrbwMZ8ydY" },
+  { name: "Podcast Guru", url: "https://app.podcastguru.io/podcast/local-bitcoiners-1874589042" },
+  { name: "Podverse",     url: "https://podverse.fm/podcast/eKqrkoAVH" },
+  { name: "CurioCaster",  url: "https://curiocaster.com/podcast/pi7683299" },
+  { name: "Castamatic",   url: "https://castamatic.com/guid/56fbb1aa-da79-5e4b-bebc-3b934ab8914c" },
+];
+
+const HOSTS = [
+  {
+    name: "Reed",
+    npub: "npub1xgyjasdztryl9sg6nfdm2wcj0j3qjs03sq7a0an32pg0lr5l6yaqxhgu7s",
+    url: "https://primal.net/Reed",
+  },
+  {
+    name: "Rev Hodl",
+    npub: "npub1f5pre6wl6ad87vr4hr5wppqq30sh58m4p33mthnjreh03qadcajs7gwt3z",
+    url: "https://primal.net/p/nprofile1qqsy6q3ua80awknlxp6m368qssqghct6ra6scca4meepumhcswkuwegutksft",
+  },
+];
+
+export async function onRequest(context) {
+  const url = new URL(context.request.url);
+  const match = url.pathname.match(EP_PATH_RE);
+  if (!match) return context.next();
+
+  if (context.request.method !== "GET" && context.request.method !== "HEAD") {
+    return new Response("Method Not Allowed", {
+      status: 405,
+      headers: { Allow: "GET, HEAD" },
+    });
+  }
+
+  const epNum = parseInt(match[1], 10);
+  if (!Number.isFinite(epNum) || epNum < 1) {
+    return renderNotFound(epNum);
+  }
+
+  const xml = await fetchRss();
+  if (!xml) {
+    return new Response("Failed to load episode feed", {
+      status: 502,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
+  }
+
+  const itemXml = findEpisodeItem(xml, epNum);
+  if (!itemXml) {
+    return renderNotFound(epNum);
+  }
+
+  // Channel-level <podcast:value> serves as fallback for episodes that
+  // don't ship a per-item value block. Extract it once.
+  const channelValueXml = matchChannelValue(xml);
+
+  const ep = extractEpisode(itemXml, epNum, channelValueXml);
+  const html = renderEpisodePage(ep);
+
+  return new Response(html, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      // 10 min edge cache — new episodes show up within that window
+      // after they land in the RSS, RSS itself isn't hammered.
+      "Cache-Control": "public, max-age=600",
+    },
+  });
+}
+
+// ── RSS fetch (size-bounded, timeout-bounded — mirrors /api/rss.js) ──
+async function fetchRss() {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const resp = await fetch(RSS_URL, {
+      headers: { "User-Agent": "LocalBitcoiners-EpPages/1.0" },
+      cf: { cacheTtl: 600, cacheEverything: true },
+      signal: ctrl.signal,
+    });
+    if (!resp.ok) return null;
+
+    const cl = parseInt(resp.headers.get("content-length") || "", 10);
+    if (Number.isFinite(cl) && cl > RESPONSE_MAX_BYTES) return null;
+
+    const reader = resp.body?.getReader?.();
+    if (!reader) {
+      const text = await resp.text();
+      return text.length > RESPONSE_MAX_BYTES ? null : text;
+    }
+    const chunks = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > RESPONSE_MAX_BYTES) {
+        try { ctrl.abort(); } catch {}
+        try { reader.cancel(); } catch {}
+        return null;
+      }
+      chunks.push(value);
+    }
+    const buf = new Uint8Array(total);
+    let off = 0;
+    for (const c of chunks) { buf.set(c, off); off += c.byteLength; }
+    return new TextDecoder("utf-8").decode(buf);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ── Minimal XML field extraction ─────────────────────────────────────
+// Workers don't ship a DOMParser, so we scrape the feed with regex. The
+// shape is predictable (Fountain RSS is stable), the only foot-guns are
+// CDATA wrappers and namespaced tags — both handled below. Not a
+// general-purpose XML parser; do not reuse this elsewhere.
+
+function findEpisodeItem(xml, epNum) {
+  const itemRe = /<item\b[^>]*>([\s\S]*?)<\/item>/g;
+  let m;
+  while ((m = itemRe.exec(xml)) !== null) {
+    const itemXml = m[1];
+    if (itemEpisodeNumber(itemXml) === epNum) {
+      return itemXml;
+    }
+  }
+  return null;
+}
+
+// Resolves the episode number for an <item>. Fountain's feed only sets
+// the <itunes:episode> tag on some items; for the rest the canonical
+// signal is "… | Ep. 010" in the title. Title parsing handles both
+// "Ep. 10" and "Ep. 010" forms.
+function itemEpisodeNumber(itemXml) {
+  const tag = matchTag(itemXml, "itunes:episode") || matchTag(itemXml, "episode");
+  if (tag) {
+    const n = parseInt(tag, 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  const title = matchTag(itemXml, "title") || "";
+  const t = title.match(/\bEp(?:isode)?\.?\s*0*(\d+)/i);
+  if (t) {
+    const n = parseInt(t[1], 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
+function matchTag(xml, tag) {
+  const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`);
+  const m = xml.match(re);
+  if (!m) return null;
+  return decodeXmlEntities(stripCdata(m[1])).trim();
+}
+
+// Fountain's feed XML-encodes element bodies (titles contain `&amp;`,
+// descriptions are `&lt;p&gt;…&lt;/p&gt;`). Without decoding here the
+// htmlEscape step on output would double-encode `&amp;` to `&amp;amp;`,
+// and stripHtml wouldn't see the actual tags inside descriptions.
+function decodeXmlEntities(s) {
+  return String(s).replace(
+    /&(amp|lt|gt|quot|apos|#x[0-9a-fA-F]+|#[0-9]+);/g,
+    (whole, ent) => {
+      const e = ent.toLowerCase();
+      if (e === "amp") return "&";
+      if (e === "lt") return "<";
+      if (e === "gt") return ">";
+      if (e === "quot") return '"';
+      if (e === "apos") return "'";
+      if (e.charAt(0) === "#") {
+        const code = e.charAt(1) === "x"
+          ? parseInt(e.slice(2), 16)
+          : parseInt(e.slice(1), 10);
+        if (Number.isFinite(code) && code > 0 && code < 0x10ffff) {
+          try { return String.fromCodePoint(code); } catch {}
+        }
+      }
+      return whole;
+    }
+  );
+}
+
+// For tags that occur multiple times where we want one matching a
+// predicate on an attribute. Used for <podcast:contentLink href="…">
+// where several entries exist (one per service) and we want fountain's.
+function matchAttrFiltered(xml, tag, attr, valueFilter) {
+  const re = new RegExp(`<${tag}\\b([^>]*?)\\/?>`, "g");
+  let m;
+  while ((m = re.exec(xml)) !== null) {
+    const attrs = m[1];
+    const am = attrs.match(new RegExp(`\\b${attr}=["']([^"']*)["']`));
+    if (am) {
+      const val = am[1];
+      if (!valueFilter || valueFilter(val)) return val;
+    }
+  }
+  return null;
+}
+
+function matchAttr(xml, tag, attr) {
+  return matchAttrFiltered(xml, tag, attr, null);
+}
+
+function stripCdata(s) {
+  return s.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1");
+}
+
+function stripHtml(s) {
+  return s
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\r/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function htmlEscape(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// Guests are encoded in the shownotes as `[guests: npub1abc..., npub1def...]`.
+// Same convention the boost bot uses for routing per-episode value splits.
+// Case-insensitive on the prefix; comma-separated; only npub1 values pass.
+function parseGuests(descriptionRaw) {
+  const m = descriptionRaw.match(/\[guests:\s*([^\]]+)\]/i);
+  if (!m) return [];
+  return m[1]
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => /^npub1[02-9ac-hj-np-z]{58}$/.test(s));
+}
+
+function extractEpisode(itemXml, epNum, channelValueXml) {
+  const title = matchTag(itemXml, "title") || `Episode ${epNum}`;
+  const pubDate = matchTag(itemXml, "pubDate") || "";
+  const guid = matchTag(itemXml, "guid") || "";
+  const descRaw =
+    matchTag(itemXml, "itunes:summary") ||
+    matchTag(itemXml, "description") ||
+    "";
+  // Drop the [guests: …] bracket from visible body text — it's metadata
+  // for the boost bot + guest enhancement, not part of the prose. The
+  // dedicated Guests section below covers the same info more nicely.
+  const descText = stripHtml(descRaw)
+    .replace(/\[guests:[^\]]*\]/gi, "")
+    .trim();
+  const enclosureUrl = matchAttr(itemXml, "enclosure", "url");
+  const fountainUrl = matchAttrFiltered(
+    itemXml,
+    "podcast:contentLink",
+    "href",
+    (v) => v && v.startsWith("https://fountain.fm/episode/")
+  );
+  const guests = parseGuests(descRaw);
+  const splits = parseSplits(itemXml, channelValueXml);
+
+  return {
+    number: epNum,
+    title,
+    pubDate,
+    guid,
+    description: descText,
+    enclosureUrl: safeHttpUrl(enclosureUrl),
+    fountainUrl: safeHttpUrl(fountainUrl),
+    guests,
+    splits,
+  };
+}
+
+// ── Podcasting 2.0 value-block parsing ────────────────────────────
+// Per-item <podcast:value> wins; falls back to channel-level. Only
+// lnaddress recipients are kept — keysend can't be paid from the
+// browser flow. Mirrors index.html's parseSplitsFor + parseValueBlock.
+
+function matchChannelValue(xml) {
+  // Channel-level <podcast:value> lives outside any <item>. Grab the
+  // first <podcast:value> that precedes the first <item>.
+  const firstItemAt = xml.indexOf("<item");
+  const haystack = firstItemAt >= 0 ? xml.slice(0, firstItemAt) : xml;
+  const m = haystack.match(/<podcast:value\b[^>]*>([\s\S]*?)<\/podcast:value>/);
+  return m ? m[0] : null;
+}
+
+function matchItemValue(itemXml) {
+  const m = itemXml.match(/<podcast:value\b[^>]*>([\s\S]*?)<\/podcast:value>/);
+  return m ? m[0] : null;
+}
+
+function parseValueBlock(valueXml, source) {
+  if (!valueXml) return null;
+  const recipients = [];
+  const reciRe = /<podcast:valueRecipient\b([^>]*?)\/?>/g;
+  let m;
+  while ((m = reciRe.exec(valueXml)) !== null) {
+    const attrs = m[1];
+    const type = (attrs.match(/\btype=["']([^"']*)["']/) || [])[1] || "";
+    if (type !== "lnaddress") continue;
+    const address = (attrs.match(/\baddress=["']([^"']*)["']/) || [])[1] || "";
+    const name = (attrs.match(/\bname=["']([^"']*)["']/) || [])[1] || address;
+    const splitStr = (attrs.match(/\bsplit=["']([^"']*)["']/) || [])[1] || "";
+    const splitWeight = parseFloat(splitStr);
+    if (!address || !Number.isFinite(splitWeight) || splitWeight <= 0) continue;
+    recipients.push({ name, address, splitWeight, type });
+  }
+  if (recipients.length === 0) return null;
+  const totalWeight = recipients.reduce((acc, r) => acc + r.splitWeight, 0);
+  return { recipients, totalWeight, source };
+}
+
+function parseSplits(itemXml, channelValueXml) {
+  const itemBlock = parseValueBlock(matchItemValue(itemXml), "item");
+  if (itemBlock) return itemBlock;
+  return parseValueBlock(channelValueXml, "channel");
+}
+
+// Reject any non-http(s) URL pulled from the feed — same defense as the
+// homepage's renderCard. A tampered upstream could otherwise embed
+// javascript: or data: into <audio src> or anchor hrefs.
+function safeHttpUrl(u) {
+  if (!u) return null;
+  try {
+    const parsed = new URL(u);
+    return parsed.protocol === "https:" || parsed.protocol === "http:"
+      ? u
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+// ── HTML rendering ───────────────────────────────────────────────────
+
+function fmtDate(iso) {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function pad(n, w = 3) {
+  return String(n).padStart(w, "0");
+}
+
+function truncate(s, n) {
+  if (!s) return "";
+  return s.length > n ? s.slice(0, n).trimEnd() + "…" : s;
+}
+
+function toIsoDate(s) {
+  if (!s) return null;
+  try {
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toISOString();
+  } catch {
+    return null;
+  }
+}
+
+// JSON for embedding inside <script type="application/ld+json">. Escape
+// `<` to `<` so a feed value containing literal `</script>` can't
+// close our script block.
+function jsonForScript(v) {
+  return JSON.stringify(v).replace(/</g, "\\u003c");
+}
+
+function renderEpisodePage(ep) {
+  const epPad = pad(ep.number);
+  const pageUrl = `${SITE_ORIGIN}/ep${epPad}`;
+  const transcriptPath = `/transcripts/localbitcoiners-ep${epPad}.txt`;
+  const ogTitle = `Ep. ${ep.number} — ${ep.title} | Local Bitcoiners`;
+  const ogDesc = truncate(ep.description, 200) ||
+    `Local Bitcoiners episode ${ep.number}.`;
+  const dateStr = fmtDate(ep.pubDate);
+  const isoPubDate = toIsoDate(ep.pubDate);
+
+  // Description text → paragraph array. The stripHtml output uses
+  // blank-line separators between paragraphs. Paragraph 1 carries the
+  // substantive episode summary; the rest are link blocks, donation
+  // info, etc., which we tuck behind a Show-more toggle.
+  const paragraphs = ep.description
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const shownotesCard = renderShownotesCard(paragraphs);
+
+  const audioBlock = ep.enclosureUrl
+    ? `<audio class="ep-player" controls preload="none" src="${htmlEscape(ep.enclosureUrl)}"></audio>`
+    : "";
+
+  // Subscribe-in-app dropdown — same SUBSCRIBE_LINKS the homepage card
+  // uses. Native <details>/<summary> so the toggle is CSS-only; outside-
+  // click closer is wired in episode-enhance.js.
+  const subscribeDropdown = `<details class="ep-subscribe">
+        <summary class="btn btn-subscribe">📡 Subscribe <span class="caret" aria-hidden="true">▾</span></summary>
+        <div class="ep-subscribe-menu">
+          ${SUBSCRIBE_LINKS.map(
+            (s) =>
+              `<a href="${htmlEscape(s.url)}" target="_blank" rel="noopener noreferrer">${htmlEscape(s.name)}</a>`
+          ).join("\n          ")}
+        </div>
+      </details>`;
+
+  // Boost CTA — server-renders only when we have parseable splits. Click
+  // is wired in episode-enhance.js: lazy-loads the widget bundle, then
+  // calls window.LBLogin.openEpisodeBoost with the episode metadata +
+  // splits embedded in the inline JSON block below. Mirrors the homepage
+  // card's per-episode boost flow.
+  const boostBtn = ep.splits
+    ? `<button type="button" class="btn btn-boost" data-lb-boost-trigger="episode">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" width="14" height="14">
+          <path fill-rule="evenodd" d="M14.615 1.595a.75.75 0 0 1 .359.852L12.982 9.75h7.268a.75.75 0 0 1 .548 1.262l-10.5 11.25a.75.75 0 0 1-1.272-.71l1.992-7.302H3.75a.75.75 0 0 1-.548-1.262l10.5-11.25a.75.75 0 0 1 .913-.143Z" clip-rule="evenodd"/>
+        </svg>
+        <span class="lb-boost-label">Boost this episode</span>
+      </button>`
+    : "";
+
+  const guestsBlock = ep.guests.length > 0
+    ? renderPeopleBlock(
+        ep.guests.length > 1 ? "Guests" : "Guest",
+        ep.guests.map((npub) => ({ npub, url: `https://mynostr.app/${npub}` }))
+      )
+    : "";
+
+  const hostsBlock = renderPeopleBlock("Hosts", HOSTS);
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com;
+    style-src 'self' 'unsafe-inline';
+    img-src 'self' data: https:;
+    font-src 'self' data:;
+    connect-src 'self' https: wss:;
+    media-src 'self' https:;
+    frame-ancestors 'none';
+    base-uri 'self';
+    form-action 'self';
+    object-src 'none';
+  " />
+
+  <title>${htmlEscape(ogTitle)}</title>
+  <meta name="description" content="${htmlEscape(ogDesc)}" />
+  <link rel="canonical" href="${pageUrl}" />
+  <link rel="icon" type="image/png" href="/assets/favicon.png" />
+  <link rel="alternate" type="application/rss+xml" title="Local Bitcoiners" href="${RSS_URL}" />
+
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="${pageUrl}" />
+  <meta property="og:title" content="${htmlEscape(ogTitle)}" />
+  <meta property="og:description" content="${htmlEscape(ogDesc)}" />
+  <meta property="og:site_name" content="Local Bitcoiners" />
+  <meta property="og:image" content="${OG_IMAGE}" />
+  ${ep.enclosureUrl ? `<meta property="og:audio" content="${htmlEscape(ep.enclosureUrl)}" />` : ""}
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="${htmlEscape(ogTitle)}" />
+  <meta name="twitter:description" content="${htmlEscape(ogDesc)}" />
+  <meta name="twitter:image" content="${OG_IMAGE}" />
+
+  <script type="application/ld+json">
+  ${jsonForScript({
+    "@context": "https://schema.org",
+    "@type": "PodcastEpisode",
+    "name": ep.title,
+    "episodeNumber": ep.number,
+    "url": pageUrl,
+    "image": OG_IMAGE,
+    "description": ogDesc,
+    ...(isoPubDate ? { "datePublished": isoPubDate } : {}),
+    ...(ep.enclosureUrl ? { "associatedMedia": { "@type": "MediaObject", "contentUrl": ep.enclosureUrl } } : {}),
+    "partOfSeries": {
+      "@type": "PodcastSeries",
+      "name": "Local Bitcoiners",
+      "url": SITE_ORIGIN,
+    },
+  })}
+  </script>
+
+  <link rel="stylesheet" href="/assets/css/episode.css" />
+</head>
+<body>
+
+<script type="application/json" id="lb-ep-data">${jsonForScript({
+    episode: { number: ep.number, title: ep.title, guid: ep.guid, fountainUrl: ep.fountainUrl },
+    splits: ep.splits,
+  })}</script>
+
+<header id="top-nav">
+  <div class="nav-inner">
+    <a class="nav-logo" href="/" aria-label="Local Bitcoiners home">
+      <img src="/assets/LocalBitcoiners.png" alt="Local Bitcoiners logo" />
+    </a>
+    <a class="nav-site-name" href="/">Local Bitcoiners</a>
+    <nav aria-label="Main navigation">
+      <ul>
+        <li><a href="/#meetups">Resources</a></li>
+        <li><a href="/#episodes">Episodes</a></li>
+        <li><a href="/boosts.html">Boosts</a></li>
+        <li><a href="/newevent.html">Submit a Meetup</a></li>
+        <li><a href="/#links">Links</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main class="ep-main">
+  <article class="ep-card ep-card-player">
+    <p class="ep-num">Ep. ${ep.number}</p>
+    <h1 class="ep-title">${htmlEscape(ep.title)}</h1>
+    <p class="ep-date">${htmlEscape(dateStr)}</p>
+
+    ${audioBlock}
+
+    <div class="ep-actions">
+      ${ep.enclosureUrl ? `<button type="button" class="btn btn-primary" data-lb-download-mp3 data-mp3-url="${htmlEscape(ep.enclosureUrl)}" data-mp3-filename="${htmlEscape(`local-bitcoiners-ep${epPad}.mp3`)}">↓ Download MP3</button>` : ""}
+      <a class="btn btn-outline" href="${htmlEscape(transcriptPath)}" download>↓ Download Transcript</a>
+      ${subscribeDropdown}
+      ${boostBtn}
+    </div>
+  </article>
+
+  ${shownotesCard}
+
+  ${(guestsBlock || hostsBlock) ? `<article class="ep-card ep-card-people">
+    ${hostsBlock}
+    ${guestsBlock}
+  </article>` : ""}
+
+  <p class="ep-back"><a href="/#episodes">← All episodes</a></p>
+</main>
+
+<footer class="ep-footer">
+  <p>© Local Bitcoiners · <a href="/">localbitcoiners.com</a></p>
+</footer>
+
+<script src="/assets/js/episode-enhance.js" defer></script>
+
+</body>
+</html>`;
+}
+
+// Renders a single section ("Hosts" or "Guests"). Hosts come with
+// `.name` (static display label) and `.npub` (for client-side avatar
+// upgrade). Guests come with `.npub` only — the client-side enhance
+// script upgrades both their name AND avatar from kind-0 metadata.
+function renderPeopleBlock(heading, people) {
+  const items = people
+    .map((p) => {
+      const npubAttr = p.npub ? ` data-npub="${htmlEscape(p.npub)}"` : "";
+      if (p.name) {
+        return `<li class="person person-host"${npubAttr}>
+            <a class="person-link" href="${htmlEscape(p.url)}" target="_blank" rel="noopener">
+              <span class="person-avatar" aria-hidden="true"></span>
+              <span class="person-name">${htmlEscape(p.name)}</span>
+            </a>
+          </li>`;
+      }
+      const short = `${p.npub.slice(0, 12)}…${p.npub.slice(-6)}`;
+      return `<li class="person person-guest"${npubAttr}>
+            <a class="person-link" href="${htmlEscape(p.url)}" target="_blank" rel="noopener">
+              <span class="person-avatar" aria-hidden="true"></span>
+              <code class="person-npub">${htmlEscape(short)}</code>
+            </a>
+          </li>`;
+    })
+    .join("\n        ");
+  return `<section class="ep-people">
+      <h2>${htmlEscape(heading)}</h2>
+      <ul class="people-list">
+        ${items}
+      </ul>
+    </section>`;
+}
+
+// Shownotes card. Paragraph 1 always visible; paragraphs 2+ live inside
+// a <details> with a "Show more / Show less" toggle. Native disclosure
+// element so it works without JS; CSS hides the default marker and
+// styles the summary as a button.
+function renderShownotesCard(paragraphs) {
+  if (paragraphs.length === 0) return "";
+  const [first, ...rest] = paragraphs;
+  const firstHtml = `<p>${htmlEscape(first)}</p>`;
+  if (rest.length === 0) {
+    return `<article class="ep-card ep-card-shownotes">
+    <div class="shownotes-body">
+      ${firstHtml}
+    </div>
+  </article>`;
+  }
+  const restHtml = rest
+    .map((p) => `<p>${htmlEscape(p)}</p>`)
+    .join("\n        ");
+  return `<article class="ep-card ep-card-shownotes">
+    <div class="shownotes-body">
+      ${firstHtml}
+      <details class="shownotes-more">
+        <summary>
+          <span class="shownotes-label-more">Show more</span>
+          <span class="shownotes-label-less">Show less</span>
+        </summary>
+        <div class="shownotes-rest">
+        ${restHtml}
+        </div>
+      </details>
+    </div>
+  </article>`;
+}
+
+// ── 404 ──────────────────────────────────────────────────────────────
+
+function renderNotFound(epNum) {
+  const label = Number.isFinite(epNum) ? `Episode ${epNum}` : "That episode";
+  const body = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Episode not found — Local Bitcoiners</title>
+  <meta name="description" content="No such episode yet — head back to the show." />
+  <meta name="robots" content="noindex" />
+  <link rel="icon" type="image/png" href="/assets/favicon.png" />
+  <link rel="stylesheet" href="/assets/css/episode.css" />
+</head>
+<body>
+<header id="top-nav">
+  <div class="nav-inner">
+    <a class="nav-logo" href="/" aria-label="Local Bitcoiners home">
+      <img src="/assets/LocalBitcoiners.png" alt="Local Bitcoiners logo" />
+    </a>
+    <a class="nav-site-name" href="/">Local Bitcoiners</a>
+  </div>
+</header>
+<main class="ep-main">
+  <article class="ep-card ep-404">
+    <h1>${htmlEscape(label)} isn't here</h1>
+    <p>Either it hasn't been published yet, or the link is off by a digit. The full episode list is on the homepage.</p>
+    <p><a class="btn btn-primary" href="/#episodes">← Browse all episodes</a></p>
+  </article>
+</main>
+</body>
+</html>`;
+  return new Response(body, {
+    status: 404,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "public, max-age=60",
+    },
+  });
+}
