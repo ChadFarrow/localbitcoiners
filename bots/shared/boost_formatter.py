@@ -16,6 +16,7 @@ for the full shape) so downstream bots can aggregate without re-doing source
 detection. `build_note_from_tx` is preserved as a thin wrapper for the boost
 publisher and top-boosts regen path."""
 
+import html
 import json
 import re
 import sys
@@ -236,6 +237,7 @@ def make_cache():
         "episode_id_map":        None,  # zero-padded ep number -> fountain_id (lazy disk-backed)
         "episode_id_map_dirty":  False,
         "castamatic_boosts":     {},    # boost url -> Castamatic JSON metadata
+        "tardbox_boosts":        {},    # boost url -> parsed Tardbox HTML fields
     }
 
 def _ensure_episode_id_map(cache):
@@ -678,6 +680,10 @@ def _classify_fountain_boost(tx, desc, payment_hash, settled_at, our_msats, cach
         if episode_url and "castamatic.com" in episode_url:
             return _classify_castamatic_boost(tx, parsed, payment_hash, settled_at, our_msats, cache)
 
+        # Tardbox / BoostMeBitch dispatch — its URL is a public HTML boost page.
+        if episode_url and "tardbox.com/boost/" in episode_url:
+            return _classify_tardbox_boost(tx, parsed, payment_hash, settled_at, our_msats, cache)
+
         show_level  = "/show/" in (episode_url or "")
         title_pair  = cache["title_cache"].get(episode_id) if episode_id else None
         if title_pair is None and episode_url:
@@ -693,9 +699,7 @@ def _classify_fountain_boost(tx, desc, payment_hash, settled_at, our_msats, cach
 
         sender_npub, full_message = lookup_fountain_sender(episode_id, settled_at, message, cache)
         if full_message:
-            full_message = re.sub(r'nostr:\S+', '', full_message).strip()
-            full_message = re.sub(r'https?://\S+', '', full_message).strip()
-            message = full_message
+            message = full_message.strip()
         if is_undefined and not message:
             message = NO_COMMENT_PLACEHOLDER
     else:
@@ -805,6 +809,131 @@ def _classify_castamatic_boost(tx, parsed, payment_hash, settled_at, our_msats, 
         "sender_npub":    None,
         "sender_name":    sender_name,
         "message":        "",   # Castamatic doesn't expose donor messages
+        "episode_id":     episode_id,
+        "episode_title":  item_title,
+        "episode_url":    episode_url,
+        "episode_number": episode_number,
+        "guests":         guests,
+        "app_name":       app_name,
+        "raw_tx":         tx,
+    })
+    if episode_id:
+        _record_episode_id(cache, episode_number, episode_id)
+    return info
+
+# Tardbox renders its per-boost page as server-side HTML (no JSON API). Each
+# row is a `<div class="boost-field"><strong class="boost-label">Label:</strong>
+# <span class="boost-value...">Value</span></div>`. We pull the rows we care
+# about by label.
+TARDBOX_FIELD_RE = re.compile(
+    r'<div class="boost-field">'
+    r'<strong class="boost-label">([^<]+):</strong>'
+    r'<span class="boost-value[^"]*">([^<]*)</span>'
+    r'</div>'
+)
+# "⚡ 420 sats" → 420. Tolerant to commas in case Tardbox ever formats them.
+TARDBOX_SATS_RE = re.compile(r'([\d,]+)\s*sats?', re.IGNORECASE)
+
+def _parse_tardbox_page(html_text):
+    """Pull the labeled rows off a Tardbox boost page into a dict. Returns {}
+    on a page that doesn't match the expected layout (Tardbox redesign, error
+    page, etc.) so callers can degrade gracefully."""
+    out = {}
+    for label, value in TARDBOX_FIELD_RE.findall(html_text):
+        out[label.strip()] = html.unescape(value).strip()
+    return out
+
+def _classify_tardbox_boost(tx, parsed, payment_hash, settled_at, our_msats, cache):
+    """Tardbox / BoostMeBitch BOLT11 boost — dispatched from
+    `_classify_fountain_boost` when the URL host is `tardbox.com/boost/`.
+    Tardbox has no JSON API, so we fetch the boost page and regex out the
+    labeled fields (From, Amount, Episode, App, Message). Sender identity
+    arrives as `nostr:npub1...` in the "From:" field; we strip the prefix and
+    let the standard render path turn it into a mention.
+
+    Maps the episode title's "Ep. NNN" to a Fountain page id via the same
+    `lb_episode_ids.json` fallback the Castamatic path uses, so the published
+    note still links to fountain.fm. `source` stays "fountain_boost"; app_name
+    comes off the page (typically "BoostMeBitch"). The sat total is read
+    directly from the page rather than back-calculated from the split divisor,
+    since the page reports donor intent exactly."""
+    boost_url = parsed.get("episode_url") or ""
+    fc        = cache.setdefault("tardbox_boosts", {})
+    if boost_url in fc:
+        page = fc[boost_url]
+    else:
+        page = {}
+        try:
+            resp = requests.get(boost_url, timeout=10)
+            resp.raise_for_status()
+            page = _parse_tardbox_page(resp.text)
+        except Exception as e:
+            print(f"  [warn] Tardbox fetch failed for {boost_url}: {e}")
+        fc[boost_url] = page
+
+    sender_npub = None
+    sender_name = None
+    raw_from    = page.get("From", "")
+    if raw_from.startswith("nostr:npub1"):
+        sender_npub = raw_from[len("nostr:"):]
+    elif raw_from:
+        sender_name = raw_from
+
+    item_title  = page.get("Episode") or None
+    app_name    = page.get("App") or "BoostMeBitch"
+    # Pass the donor's message through unchanged. Unlike the Fountain comments
+    # API (which appends nostr:/URL metadata we have to strip), Tardbox renders
+    # exactly what the donor typed — any nostr: mention or URL in there is
+    # intentional and should render as written. nostrify_mentions in the note
+    # formatter will leave already-prefixed nostr: entities alone.
+    message = (page.get("Message") or "").strip()
+
+    # Map "Ep. NNN" → Fountain page id via the shared fallback map. (No RSS
+    # item_guid available from Tardbox, so this map is the only path.)
+    episode_number = _extract_episode_number(item_title)
+    fountain_id    = None
+    guests         = []
+    if episode_number:
+        fallback_map = _ensure_episode_id_map(cache)
+        fountain_id  = fallback_map.get(episode_number)
+        if fountain_id:
+            # Fountain page also yields the guest list, so reuse the cached
+            # scrape if we have one (built up by Fountain-source boosts on the
+            # same episode); otherwise leave guests empty rather than paying
+            # the scrape on a Tardbox-only run.
+            title_pair = cache["title_cache"].get(fountain_id)
+            if title_pair:
+                guests = title_pair[1] or []
+
+    if fountain_id:
+        episode_id  = fountain_id
+        episode_url = f"https://fountain.fm/episode/{fountain_id}"
+    else:
+        episode_id  = None
+        episode_url = None
+
+    # Prefer the page's reported total (donor intent). Fall back to the split-
+    # divisor calc if the page didn't yield a parseable "Amount:" row.
+    total_msats = 0
+    sats_raw    = page.get("Amount", "")
+    if sats_raw:
+        m = TARDBOX_SATS_RE.search(sats_raw)
+        if m:
+            try:
+                total_msats = int(m.group(1).replace(",", "")) * 1000
+            except Exception:
+                total_msats = 0
+    if total_msats > 0:
+        divisor = 1.0
+    else:
+        divisor     = get_divisor(settled_at)
+        total_msats = round(our_msats / divisor) if divisor else our_msats
+
+    info = _new_info("fountain_boost", payment_hash, settled_at, our_msats, total_msats, divisor)
+    info.update({
+        "sender_npub":    sender_npub,
+        "sender_name":    sender_name,
+        "message":        message,
         "episode_id":     episode_id,
         "episode_title":  item_title,
         "episode_url":    episode_url,
