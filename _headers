@@ -1,3 +1,9 @@
 /*
   Content-Security-Policy: frame-ancestors 'none'
   X-Frame-Options: DENY
+
+# Service worker must never be cached by intermediaries. The browser's
+# own SW update check honors this so version bumps in sw.js actually
+# reach users instead of being shadowed by a stale CDN/browser copy.
+/sw.js
+  Cache-Control: no-cache, no-store, must-revalidate
