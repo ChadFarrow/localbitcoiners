@@ -429,6 +429,33 @@
     }
     .embed-note.is-naddr a:hover { color: var(--orange); }
 
+    /* ── Embedded NIP-52 calendar event (kind 31922/31923) ── */
+    .embed-note.is-event .event-title {
+      font-family: 'Playfair Display', Georgia, serif;
+      font-weight: 700;
+      font-size: 1.02rem;
+      line-height: 1.25;
+      color: var(--navy);
+      margin-bottom: 0.35rem;
+      word-break: break-word;
+    }
+    .embed-note.is-event .event-meta {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.4rem;
+      color: var(--text);
+      font-size: 0.88rem;
+      line-height: 1.45;
+      margin: 0.15rem 0;
+      word-break: break-word;
+    }
+    .embed-note.is-event .event-meta .event-icon {
+      flex-shrink: 0;
+      width: 1.1rem;
+      text-align: center;
+      font-style: normal;
+    }
+
     /* ── Per-note action bar (Reply / Like / Zap) ── */
     .note-actions {
       display: flex;
@@ -909,8 +936,9 @@
   // Module-level caches. Seeded from the thread's profiles + notes,
   // augmented with supplementary Primal lookups for mentioned npubs and
   // referenced event ids before we paint.
-  const profileCache = new Map()  // pubkey hex → { pubkey, name, picture, nip05 }
-  const embedCache   = new Map()  // event id hex → kind-1 event (or null = not found)
+  const profileCache  = new Map()  // pubkey hex → { pubkey, name, picture, nip05 }
+  const embedCache    = new Map()  // event id hex → kind-1 event (or null = not found)
+  const calendarCache = new Map()  // "<kind>:<pubkey>:<dTag>" → parsed event (or null = miss)
 
   // Single chokepoint for any profile entering the cache. Re-applies
   // isSafeUrl to picture (defense-in-depth — most callers go through
@@ -1069,22 +1097,95 @@
     const card = document.createElement('div')
     card.className = 'embed-note'
 
-    // naddr (long-form, calendar event, etc.) — out of scope to fully
-    // render here; show a chip linking out to a Nostr client.
+    // naddr (long-form, calendar event, etc.) — NIP-52 calendar events
+    // get a rich inline card (author / title / when / where), every
+    // other addressable kind degrades to a chip linking out.
     //
-    // NIP-52 calendar events (31922 date-based, 31923 time-based) go
-    // to mynostr.app, which has a dedicated events module that
-    // renders date/time/location/RSVP UI. mynostr's router accepts a
-    // bare naddr at the root and canonicalizes it to
+    // mynostr.app is the canonical viewer for events: its router
+    // accepts a bare naddr at the root and canonicalizes to
     //   /<authorNpub>/events/<naddr>
-    // so we just hand it the bech32 form. Everything else (long-form
-    // articles, marketplace listings, etc.) still falls through to
-    // njump.me as the generic fallback.
+    // so we just hand it the bech32 form. Long-form articles,
+    // marketplace listings, etc. still fall through to njump.me as
+    // the generic fallback.
     if (seg.data.addressable) {
+      const naddrKind = seg.data.naddr?.kind
+      const isCalendar = naddrKind === KIND_DATE_EVENT || naddrKind === KIND_TIME_EVENT
+      const coord = isCalendar
+        ? `${naddrKind}:${seg.data.naddr.pubkey}:${seg.data.naddr.identifier}`
+        : null
+      const parsedEvent = coord ? calendarCache.get(coord) : null
+
+      if (parsedEvent) {
+        card.classList.add('is-event')
+
+        // Author header — reuse the same lockup as kind-1 quoted notes.
+        const authorRow = document.createElement('div')
+        authorRow.className = 'embed-author'
+        const profile = profileCache.get(parsedEvent.pubkey)
+
+        const img = document.createElement('img')
+        img.src = profile?.picture || 'assets/LocalBitcoiners.png'
+        img.alt = ''
+        img.referrerPolicy = 'no-referrer'
+        img.onerror = () => { img.src = 'assets/LocalBitcoiners.png' }
+        authorRow.appendChild(img)
+
+        const nameEl = document.createElement('span')
+        nameEl.className = 'author-name'
+        nameEl.textContent = profile?.name || (parsedEvent.pubkey.slice(0, 8) + '…')
+        authorRow.appendChild(nameEl)
+        card.appendChild(authorRow)
+
+        // Title
+        const titleEl = document.createElement('div')
+        titleEl.className = 'event-title'
+        titleEl.textContent = parsedEvent.title
+        card.appendChild(titleEl)
+
+        // 📅 When
+        const whenStr = formatEventWhen(parsedEvent)
+        if (whenStr) {
+          const whenEl = document.createElement('div')
+          whenEl.className = 'event-meta'
+          const icon = document.createElement('span')
+          icon.className = 'event-icon'
+          icon.setAttribute('aria-hidden', 'true')
+          icon.textContent = '📅'
+          whenEl.appendChild(icon)
+          whenEl.appendChild(document.createTextNode(whenStr))
+          card.appendChild(whenEl)
+        }
+
+        // 📍 Where
+        if (parsedEvent.location) {
+          const whereEl = document.createElement('div')
+          whereEl.className = 'event-meta'
+          const icon = document.createElement('span')
+          icon.className = 'event-icon'
+          icon.setAttribute('aria-hidden', 'true')
+          icon.textContent = '📍'
+          whereEl.appendChild(icon)
+          whereEl.appendChild(document.createTextNode(parsedEvent.location))
+          card.appendChild(whereEl)
+        }
+
+        // Footer
+        const footer = document.createElement('div')
+        footer.className = 'embed-footer'
+        const link = document.createElement('a')
+        link.href = `https://mynostr.app/${seg.data.bech32}`
+        link.textContent = 'View on Nostr →'
+        link.target = '_blank'
+        link.rel = 'noopener noreferrer'
+        footer.appendChild(link)
+        card.appendChild(footer)
+        return card
+      }
+
+      // No rich card — fall back to the chip.
       card.classList.add('is-naddr')
       const link = document.createElement('a')
-      const naddrKind = seg.data.naddr?.kind
-      if (naddrKind === 31922 || naddrKind === 31923) {
+      if (isCalendar) {
         link.href = `https://mynostr.app/${seg.data.bech32}`
         link.textContent = '📅 Linked event on Nostr →'
       } else {
@@ -1256,6 +1357,177 @@
       }
       return { notes, profiles }
     } catch { return { notes: new Map(), profiles: new Map() } }
+  }
+
+  // ── NIP-52 calendar events (kind 31922 date-based / 31923 time-based) ─
+  // Slimmed inline port of login-widget/src/lib/eventTypes.js. Returns
+  // null when the event doesn't carry the minimum tags we need to
+  // render (d / title / start) — caller falls back to the chip.
+  const KIND_DATE_EVENT = 31922
+  const KIND_TIME_EVENT = 31923
+
+  function calendarTagValue(ev, name) {
+    if (!Array.isArray(ev?.tags)) return ''
+    for (const t of ev.tags) {
+      if (Array.isArray(t) && t[0] === name && typeof t[1] === 'string') return t[1]
+    }
+    return ''
+  }
+
+  function sanitizeTzid(raw) {
+    const tz = String(raw || '').trim()
+    if (!tz) return ''
+    try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return tz } catch { return '' }
+  }
+
+  function parseCalendarEvent(ev) {
+    if (!ev || (ev.kind !== KIND_DATE_EVENT && ev.kind !== KIND_TIME_EVENT)) return null
+    const dTag = calendarTagValue(ev, 'd')
+    if (!dTag) return null
+    const title = calendarTagValue(ev, 'title')
+    if (!title) return null
+    const startRaw = calendarTagValue(ev, 'start')
+    if (!startRaw) return null
+    const isDateBased = ev.kind === KIND_DATE_EVENT
+    const endRaw = calendarTagValue(ev, 'end')
+    return {
+      id: ev.id || '',
+      pubkey: ev.pubkey || '',
+      kind: ev.kind,
+      dTag,
+      title,
+      summary:  calendarTagValue(ev, 'summary'),
+      location: calendarTagValue(ev, 'location'),
+      isDateBased,
+      start: startRaw,
+      end:   endRaw,
+      startTzid: isDateBased ? '' : sanitizeTzid(calendarTagValue(ev, 'start_tzid')),
+    }
+  }
+
+  // Render a parsed calendar event's start (and optional end) as a
+  // human-readable string. Date-based events ignore tzid; time-based
+  // events render in the event's tzid (falling back to viewer-local).
+  function formatEventWhen(parsed) {
+    if (!parsed) return ''
+    if (parsed.isDateBased) {
+      const startMs = ymdToMs(parsed.start)
+      if (!Number.isFinite(startMs)) return parsed.start || ''
+      const fmt = new Intl.DateTimeFormat(undefined, {
+        weekday: 'short', month: 'short', day: 'numeric',
+        year: yearOpt(startMs),
+        timeZone: 'UTC',
+      })
+      const startStr = fmt.format(new Date(startMs))
+      if (parsed.end) {
+        const endMs = ymdToMs(parsed.end)
+        if (Number.isFinite(endMs) && endMs > startMs) {
+          return `${startStr} – ${fmt.format(new Date(endMs))}`
+        }
+      }
+      return startStr
+    }
+    const startSec = parseInt(parsed.start, 10)
+    if (!Number.isFinite(startSec)) return parsed.start || ''
+    const tz = parsed.startTzid || undefined
+    const dtOpts = {
+      weekday: 'short', month: 'short', day: 'numeric',
+      hour: 'numeric', minute: '2-digit',
+      timeZone: tz,
+      timeZoneName: 'short',
+      year: yearOpt(startSec * 1000),
+    }
+    const fmt = new Intl.DateTimeFormat(undefined, dtOpts)
+    const startStr = fmt.format(new Date(startSec * 1000))
+    if (parsed.end) {
+      const endSec = parseInt(parsed.end, 10)
+      if (Number.isFinite(endSec) && endSec > startSec) {
+        const sameDay = sameYmdInTz(startSec * 1000, endSec * 1000, tz)
+        const endFmt = sameDay
+          ? new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', timeZone: tz, timeZoneName: 'short' })
+          : fmt
+        return `${startStr} – ${endFmt.format(new Date(endSec * 1000))}`
+      }
+    }
+    return startStr
+  }
+
+  function ymdToMs(s) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || '').trim())
+    if (!m) return NaN
+    return Date.UTC(+m[1], +m[2] - 1, +m[3])
+  }
+
+  function yearOpt(ms) {
+    // Omit the year when the event sits in the current calendar year —
+    // shorter strings, less line-wrap inside the card.
+    return new Date(ms).getUTCFullYear() === new Date().getUTCFullYear() ? undefined : 'numeric'
+  }
+
+  function sameYmdInTz(aMs, bMs, tz) {
+    try {
+      const fmt = new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz || 'UTC',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+      })
+      return fmt.format(new Date(aMs)) === fmt.format(new Date(bMs))
+    } catch { return false }
+  }
+
+  // Bulk-fetch calendar events (kind 31922/31923) by addressable coord
+  // straight from public relays. Primal's cache API is id-based, not
+  // coord-based, so we go to relays directly. Signature-verified to
+  // defend against a hostile relay swapping in a different event.
+  async function fetchCalendarEventsFromRelays(coords, relays) {
+    if (!coords.length) return new Map()
+    const out = new Map()
+    // Partition by kind so each REQ filter is well-formed (kinds[], authors[], #d[]).
+    const byKind = new Map()
+    for (const coord of coords) {
+      const [k, pk, d] = String(coord).split(':')
+      const kindNum = parseInt(k, 10)
+      if ((kindNum !== KIND_DATE_EVENT && kindNum !== KIND_TIME_EVENT) || !/^[0-9a-f]{64}$/i.test(pk || '') || !d) continue
+      if (!byKind.has(kindNum)) byKind.set(kindNum, { authors: new Set(), dTags: new Set() })
+      const bucket = byKind.get(kindNum)
+      bucket.authors.add(pk)
+      bucket.dTags.add(d)
+    }
+    if (!byKind.size) return out
+
+    const pool = new SimplePool()
+    try {
+      const queries = []
+      for (const [kindNum, { authors, dTags }] of byKind) {
+        queries.push(
+          pool.querySync(relays, {
+            kinds:   [kindNum],
+            authors: [...authors],
+            '#d':    [...dTags],
+            limit:   200,
+          }).catch(() => [])
+        )
+      }
+      const results = await Promise.all(queries)
+      const wanted = new Set(coords.map(String))
+      for (const evs of results) {
+        for (const ev of evs) {
+          if (!ev || !verifyEvent(ev)) continue
+          const parsed = parseCalendarEvent(ev)
+          if (!parsed) continue
+          const coord = `${parsed.kind}:${parsed.pubkey}:${parsed.dTag}`
+          if (!wanted.has(coord)) continue
+          // Addressable replacement: keep the newest by created_at.
+          const prev = out.get(coord)
+          if (!prev || (ev.created_at || 0) > (prev.id ? (prev.createdAt || 0) : -1)) {
+            parsed.createdAt = ev.created_at || 0
+            out.set(coord, parsed)
+          }
+        }
+      }
+    } finally {
+      try { pool.close(relays) } catch {}
+    }
+    return out
   }
 
   // ── Direct-relay fallback (used only if Primal didn't return root) ─
@@ -2250,10 +2522,12 @@
     for (const ev of notes) embedCache.set(ev.id, ev)
 
     // Scan every note body for nostr: entities and figure out which
-    // npubs/event-ids we still need to resolve so mentions render as
-    // @displayName and quoted notes render as embed cards.
-    const wantedPubkeys = new Set()
-    const wantedEventIds = new Set()
+    // npubs/event-ids/calendar-coords we still need to resolve so
+    // mentions render as @displayName, quoted notes render as embed
+    // cards, and NIP-52 naddrs render as rich event cards.
+    const wantedPubkeys     = new Set()
+    const wantedEventIds    = new Set()
+    const wantedCalendarCoords = new Set()
     for (const ev of notes) {
       for (const m of (ev.content || '').matchAll(NOSTR_URI_RE)) {
         try {
@@ -2262,37 +2536,56 @@
           else if (decoded.type === 'nprofile') wantedPubkeys.add(decoded.data.pubkey)
           else if (decoded.type === 'note') wantedEventIds.add(decoded.data)
           else if (decoded.type === 'nevent') wantedEventIds.add(decoded.data.id)
-          // naddr is intentionally skipped — we render it as a "linked
-          // article" chip without fetching the addressable event.
+          else if (decoded.type === 'naddr') {
+            const { kind, pubkey, identifier } = decoded.data
+            if ((kind === KIND_DATE_EVENT || kind === KIND_TIME_EVENT) && pubkey && identifier) {
+              wantedCalendarCoords.add(`${kind}:${pubkey}:${identifier}`)
+            }
+            // Other addressable kinds still fall through to the
+            // "linked article" chip path; no fetch needed.
+          }
         } catch {}
       }
     }
-    const missingPubkeys  = [...wantedPubkeys].filter(pk => !profileCache.has(pk))
-    const missingEventIds = [...wantedEventIds].filter(id => !embedCache.has(id))
+    const missingPubkeys     = [...wantedPubkeys].filter(pk => !profileCache.has(pk))
+    const missingEventIds    = [...wantedEventIds].filter(id => !embedCache.has(id))
+    const missingCalendar    = [...wantedCalendarCoords].filter(c => !calendarCache.has(c))
+    const calendarFetchRelays = Array.from(new Set([...STATIC_RELAYS, ...hintRelays]))
 
-    if (missingPubkeys.length || missingEventIds.length) {
-      const [extraProfiles, extraEvents] = await Promise.all([
+    if (missingPubkeys.length || missingEventIds.length || missingCalendar.length) {
+      const [extraProfiles, extraEvents, extraCalendar] = await Promise.all([
         fetchProfilesFromPrimal(missingPubkeys),
         fetchEventsFromPrimal(missingEventIds),
+        fetchCalendarEventsFromRelays(missingCalendar, calendarFetchRelays),
       ])
       for (const [pk, p] of extraProfiles) setCachedProfile(pk, p)
       for (const [id, ev] of extraEvents.notes) embedCache.set(id, ev)
       for (const [pk, p] of extraEvents.profiles) setCachedProfile(pk, p)
+      for (const [coord, parsed] of extraCalendar) calendarCache.set(coord, parsed)
       // Mark unresolvable ids so the renderer shows the "not available"
       // fallback instead of a perpetual skeleton.
       for (const id of missingEventIds) {
         if (!embedCache.has(id)) embedCache.set(id, null)
       }
-
-      // Embedded events come back without their author kind-0; do a
-      // follow-up profile fetch so the embed card renders @displayName
-      // instead of a truncated npub.
-      const embedAuthorPubkeys = []
-      for (const [, ev] of extraEvents.notes) {
-        if (ev?.pubkey && !profileCache.has(ev.pubkey)) embedAuthorPubkeys.push(ev.pubkey)
+      // Calendar misses → null so buildEmbedNoteEl falls back to the
+      // existing chip rather than waiting on a fetch that already failed.
+      for (const coord of missingCalendar) {
+        if (!calendarCache.has(coord)) calendarCache.set(coord, null)
       }
-      if (embedAuthorPubkeys.length) {
-        const more = await fetchProfilesFromPrimal(embedAuthorPubkeys)
+
+      // Embedded events (kind-1 quotes + calendar event authors) come
+      // back without their author kind-0; do a follow-up profile fetch
+      // so the embed card renders @displayName instead of a truncated
+      // npub.
+      const embedAuthorPubkeys = new Set()
+      for (const [, ev] of extraEvents.notes) {
+        if (ev?.pubkey && !profileCache.has(ev.pubkey)) embedAuthorPubkeys.add(ev.pubkey)
+      }
+      for (const [, parsed] of extraCalendar) {
+        if (parsed?.pubkey && !profileCache.has(parsed.pubkey)) embedAuthorPubkeys.add(parsed.pubkey)
+      }
+      if (embedAuthorPubkeys.size) {
+        const more = await fetchProfilesFromPrimal([...embedAuthorPubkeys])
         for (const [pk, p] of more) setCachedProfile(pk, p)
       }
     }
