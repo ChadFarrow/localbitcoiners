@@ -427,7 +427,7 @@ function renderEpisodePage(ep) {
     .map((p) => p.trim())
     .filter(Boolean);
 
-  const shownotesCard = renderShownotesCard(paragraphs);
+  const shownotesDisclosure = renderShownotesDisclosure(paragraphs);
 
   const audioBlock = ep.enclosureUrl
     ? `<audio class="ep-player" controls preload="none" src="${htmlEscape(ep.enclosureUrl)}"></audio>`
@@ -460,14 +460,14 @@ function renderEpisodePage(ep) {
       </button>`
     : "";
 
-  const guestsBlock = ep.guests.length > 0
-    ? renderPeopleBlock(
+  const guestsGroup = ep.guests.length > 0
+    ? renderPeopleGroup(
         ep.guests.length > 1 ? "Guests" : "Guest",
         ep.guests.map((npub) => ({ npub, url: `https://mynostr.app/${npub}` }))
       )
     : "";
 
-  const hostsBlock = renderPeopleBlock("Hosts", HOSTS);
+  const hostsGroup = renderPeopleGroup("Hosts", HOSTS);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -526,6 +526,7 @@ function renderEpisodePage(ep) {
   })}
   </script>
 
+  <link rel="stylesheet" href="/assets/css/boosts-thread.css" />
   <link rel="stylesheet" href="/assets/css/episode.css" />
 </head>
 <body>
@@ -567,14 +568,22 @@ function renderEpisodePage(ep) {
       ${subscribeDropdown}
       ${boostBtn}
     </div>
+
+    ${shownotesDisclosure}
   </article>
 
-  ${shownotesCard}
-
-  ${(guestsBlock || hostsBlock) ? `<article class="ep-card ep-card-people">
-    ${hostsBlock}
-    ${guestsBlock}
+  ${(hostsGroup || guestsGroup) ? `<article class="ep-card ep-card-people">
+    <div class="ep-people-row">
+      ${hostsGroup}
+      ${guestsGroup}
+    </div>
   </article>` : ""}
+
+  <section class="ep-boosts" data-ep-num="${ep.number}" aria-labelledby="ep-boosts-heading">
+    <h2 class="ep-boosts-heading" id="ep-boosts-heading">Boosts on this episode</h2>
+    <p class="ep-boosts-status" data-ep-boosts-status>Loading boosts…</p>
+    <div class="ep-boosts-list" data-ep-boosts-list></div>
+  </section>
 
   <p class="ep-back"><a href="/#episodes">← All episodes</a></p>
 </main>
@@ -584,76 +593,61 @@ function renderEpisodePage(ep) {
 </footer>
 
 <script src="/assets/js/episode-enhance.js" defer></script>
+<script type="module" src="/assets/js/ep-boosts.js"></script>
 
 </body>
 </html>`;
 }
 
-// Renders a single section ("Hosts" or "Guests"). Hosts come with
-// `.name` (static display label) and `.npub` (for client-side avatar
-// upgrade). Guests come with `.npub` only — the client-side enhance
-// script upgrades both their name AND avatar from kind-0 metadata.
-function renderPeopleBlock(heading, people) {
+// Renders a label + inline pills for either Hosts or Guests. Returns a
+// flat sequence of elements (label first, then one pill per person) so
+// hosts and guests share a single flex row in .ep-people-row. When the
+// row is too narrow, individual pills wrap rather than entire groups —
+// keeping the "single line on desktop" feel intact for as long as
+// possible. Hosts have a static `.name`; guests get a truncated npub
+// that episode-enhance.js later upgrades from kind-0 metadata.
+function renderPeopleGroup(label, people) {
   const items = people
     .map((p) => {
       const npubAttr = p.npub ? ` data-npub="${htmlEscape(p.npub)}"` : "";
       if (p.name) {
-        return `<li class="person person-host"${npubAttr}>
-            <a class="person-link" href="${htmlEscape(p.url)}" target="_blank" rel="noopener">
-              <span class="person-avatar" aria-hidden="true"></span>
-              <span class="person-name">${htmlEscape(p.name)}</span>
-            </a>
-          </li>`;
+        return `<span class="person person-host"${npubAttr}>
+          <a class="person-link" href="${htmlEscape(p.url)}" target="_blank" rel="noopener">
+            <span class="person-avatar" aria-hidden="true"></span>
+            <span class="person-name">${htmlEscape(p.name)}</span>
+          </a>
+        </span>`;
       }
       const short = `${p.npub.slice(0, 12)}…${p.npub.slice(-6)}`;
-      return `<li class="person person-guest"${npubAttr}>
-            <a class="person-link" href="${htmlEscape(p.url)}" target="_blank" rel="noopener">
-              <span class="person-avatar" aria-hidden="true"></span>
-              <code class="person-npub">${htmlEscape(short)}</code>
-            </a>
-          </li>`;
+      return `<span class="person person-guest"${npubAttr}>
+          <a class="person-link" href="${htmlEscape(p.url)}" target="_blank" rel="noopener">
+            <span class="person-avatar" aria-hidden="true"></span>
+            <code class="person-npub">${htmlEscape(short)}</code>
+          </a>
+        </span>`;
     })
     .join("\n        ");
-  return `<section class="ep-people">
-      <h2>${htmlEscape(heading)}</h2>
-      <ul class="people-list">
-        ${items}
-      </ul>
-    </section>`;
+  return `<span class="ep-people-label">${htmlEscape(label)}</span>
+        ${items}`;
 }
 
-// Shownotes card. Paragraph 1 always visible; paragraphs 2+ live inside
-// a <details> with a "Show more / Show less" toggle. Native disclosure
-// element so it works without JS; CSS hides the default marker and
-// styles the summary as a button.
-function renderShownotesCard(paragraphs) {
+// Shownotes disclosure. Collapsed by default as a "Show notes" sub-banner
+// at the bottom of the player card; expands inline to reveal all
+// paragraphs. Native <details>/<summary> so toggling works without JS.
+function renderShownotesDisclosure(paragraphs) {
   if (paragraphs.length === 0) return "";
-  const [first, ...rest] = paragraphs;
-  const firstHtml = `<p>${htmlEscape(first)}</p>`;
-  if (rest.length === 0) {
-    return `<article class="ep-card ep-card-shownotes">
-    <div class="shownotes-body">
-      ${firstHtml}
-    </div>
-  </article>`;
-  }
-  const restHtml = rest
+  const body = paragraphs
     .map((p) => `<p>${htmlEscape(p)}</p>`)
     .join("\n        ");
-  return `<article class="ep-card ep-card-shownotes">
-    <div class="shownotes-body">
-      ${firstHtml}
-      <details class="shownotes-more">
-        <summary>
-          <span class="shownotes-label-more">Show more</span>
-          <span class="shownotes-label-less">Show less</span>
-        </summary>
-        <div class="shownotes-rest">
-        ${restHtml}
-        </div>
-      </details>
-    </div>
-  </article>`;
+  return `<details class="ep-shownotes">
+      <summary class="ep-shownotes-summary">
+        <span class="ep-shownotes-title">Show notes</span>
+        <span class="ep-shownotes-caret" aria-hidden="true">▾</span>
+      </summary>
+      <div class="ep-shownotes-body shownotes-body">
+        ${body}
+      </div>
+    </details>`;
 }
 
 // ── 404 ──────────────────────────────────────────────────────────────

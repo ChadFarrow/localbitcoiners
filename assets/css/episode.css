@@ -141,7 +141,7 @@ nav ul li a:hover {
   padding: 2rem 2rem 2.25rem;
   box-shadow: 0 4px 16px rgba(30,58,95,0.07);
 }
-.ep-card + .ep-card { margin-top: 1.5rem; }
+.ep-card + .ep-card { margin-top: 0.85rem; }
 .ep-num {
   display: inline-block;
   background: var(--orange);
@@ -280,11 +280,58 @@ nav ul li a:hover {
   color: var(--orange);
 }
 
-/* ── Shownotes card ────────────────────────────────────────────
-   Paragraph 1 always rendered. Paragraphs 2+ live inside a <details>
-   that toggles with a "Show more / Show less" pill. `overflow-wrap`
-   on the body breaks the long Silent Payment / Paynym strings so they
-   don't overflow the card. */
+/* ── Shownotes disclosure (banner strip at the bottom of the player card) ─
+   Breaks out of the card's horizontal/bottom padding via negative margins
+   so it reaches the card's edges and tucks into the rounded bottom
+   corners. Cream-tinted background reads as a distinct banner rather
+   than plain clickable text. */
+.ep-shownotes {
+  margin: 1.6rem -2rem -2.25rem;
+  background: var(--white);
+  border-top: 1px solid var(--border);
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+  overflow: hidden;
+}
+.ep-shownotes-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  padding: 1rem 2rem;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--navy);
+  letter-spacing: 0.02em;
+  transition: background 0.15s, color 0.15s;
+}
+.ep-shownotes-summary::-webkit-details-marker { display: none; }
+.ep-shownotes-summary::marker { content: ''; }
+.ep-shownotes-summary:hover {
+  background: var(--cream);
+  color: var(--orange);
+}
+.ep-shownotes-caret {
+  font-size: 0.85rem;
+  color: var(--muted);
+  transition: transform 0.15s, color 0.15s;
+}
+.ep-shownotes[open] .ep-shownotes-summary {
+  background: var(--cream);
+}
+.ep-shownotes[open] .ep-shownotes-caret {
+  transform: rotate(180deg);
+  color: var(--navy);
+}
+.ep-shownotes-body {
+  padding: 1.1rem 2rem 1.5rem;
+  border-top: 1px dashed var(--border);
+  background: var(--white);
+}
 .shownotes-body {
   font-size: 1.02rem;
   line-height: 1.75;
@@ -298,73 +345,30 @@ nav ul li a:hover {
   font-weight: 600;
 }
 
-.shownotes-more {
-  margin-top: 0.5rem;
-}
-.shownotes-more > summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  cursor: pointer;
-  list-style: none;
-  font-size: 0.88rem;
-  font-weight: 600;
-  color: var(--navy-l);
-  padding: 0.4rem 0.85rem;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--cream);
-  user-select: none;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
-}
-.shownotes-more > summary::-webkit-details-marker { display: none; }
-.shownotes-more > summary::marker { content: ''; }
-.shownotes-more > summary::after {
-  content: '▾';
-  font-size: 0.75rem;
-  margin-left: 0.1rem;
-  transition: transform 0.15s;
-}
-.shownotes-more[open] > summary::after { transform: rotate(180deg); }
-.shownotes-more > summary:hover {
-  background: var(--white);
-  border-color: var(--orange);
-  color: var(--orange);
-}
-.shownotes-more[open] > summary .shownotes-label-more { display: none; }
-.shownotes-more:not([open]) > summary .shownotes-label-less { display: none; }
-.shownotes-rest {
-  margin-top: 1.1rem;
-  padding-top: 1rem;
-  border-top: 1px dashed var(--border);
-}
-
-/* ── People (Hosts / Guests) ──────────────────────────────────── */
-.ep-people {
-  margin-top: 1.8rem;
-  padding-top: 1.4rem;
-  border-top: 1px solid var(--border);
-}
-/* First .ep-people in a card has no separator — the card itself is
-   the separator. Subsequent sections (e.g. Guests after Hosts) get
-   the divider. */
-.ep-card-people .ep-people:first-child {
-  margin-top: 0;
-  padding-top: 0;
-  border-top: none;
-}
-.ep-people h2 {
-  font-family: 'Playfair Display', Georgia, serif;
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: var(--navy);
-  margin-bottom: 0.85rem;
-}
-.people-list {
-  list-style: none;
+/* ── People (Hosts / Guests) ──────────────────────────────────────
+   Single flat row of labels + pills. Items wrap individually when the
+   row runs out of horizontal space — preserving the "single line on
+   desktop" look as long as possible, instead of wrapping host/guest
+   groups as a unit. */
+.ep-card-people { padding: 1.1rem 1.5rem; }
+.ep-people-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  align-items: center;
+  gap: 0.5rem 0.6rem;
+}
+.ep-people-label {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--navy);
+  letter-spacing: 0.01em;
+}
+.ep-people-label + .ep-people-label,
+.person + .ep-people-label {
+  /* Extra breathing room before a label that follows another label
+     or a pill — keeps the "Hosts … Guests …" grouping legible. */
+  margin-left: 0.5rem;
 }
 .person { margin: 0; }
 .person-link {
@@ -405,6 +409,40 @@ nav ul li a:hover {
 }
 .person-name { color: inherit; }
 
+/* ── Per-episode boosts section ───────────────────────────────────
+   Hydrated client-side by /assets/js/ep-boosts.js. Card styles for the
+   actual boost notes live in /assets/css/boosts-thread.css. */
+.ep-boosts {
+  margin-top: 1.6rem;
+}
+.ep-boosts-heading {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 0.85rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 2px solid var(--orange);
+  display: inline-block;
+}
+.ep-boosts-status {
+  color: var(--muted);
+  font-style: italic;
+  padding: 0.4rem 0;
+  font-size: 0.95rem;
+}
+.ep-boosts-anchors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ep-boosts-anchors > li {
+  margin: 0;
+}
+.ep-boosts-anchors > li + li {
+  margin-top: 0.4rem;
+}
+
 /* ── Back link + footer ───────────────────────────────────────── */
 .ep-back {
   margin-top: 2rem;
@@ -438,5 +476,13 @@ nav ul li a:hover {
 @media (max-width: 540px) {
   .ep-main { padding: 1.5rem 0.75rem 2.5rem; }
   .ep-card { padding: 1.4rem 1.1rem 1.6rem; border-radius: 10px; }
+  .ep-card-people { padding: 0.9rem 1.1rem; }
   .ep-actions .btn { font-size: 0.82rem; padding: 0.45rem 0.8rem; }
+  .ep-shownotes {
+    margin: 1.3rem -1.1rem -1.6rem;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+  }
+  .ep-shownotes-summary { padding: 0.85rem 1.1rem; font-size: 0.98rem; }
+  .ep-shownotes-body { padding: 0.95rem 1.1rem 1.3rem; }
 }

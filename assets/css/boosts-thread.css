@@ -1,0 +1,253 @@
+/* Shared styles for the boost mega-thread renderer (boosts-thread.js).
+   Used by /boosts.html (full thread) and /ep### (per-episode subset).
+   Relies on the host page defining the LB color variables on :root —
+   --cream, --cream-d, --navy, --navy-l, --orange, --orange-d, --text,
+   --muted, --border, --white. */
+
+/* ── Note cards ──────────────────────────────────────────────────── */
+.note-list { list-style: none; margin: 0; padding: 0; }
+.note-list li { margin: 0; }
+
+.note-card {
+  background: var(--cream);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.1rem 1.25rem;
+  margin-bottom: 0.9rem;
+  box-shadow: 0 2px 8px rgba(30,58,95,0.06);
+}
+.note-card.is-root {
+  background: var(--white);
+  border-left: 4px solid var(--orange);
+  padding: 1.5rem 1.6rem;
+  margin-bottom: 1.8rem;
+}
+.note-card.is-root .note-body { font-size: 1.05rem; }
+
+.note-author {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.55rem;
+  font-size: 0.86rem;
+}
+.note-author img {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--cream-d);
+}
+.note-author .author-name {
+  font-weight: 700;
+  color: var(--navy);
+}
+.note-author .author-handle {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.note-author time {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-style: italic;
+  flex-shrink: 0;
+}
+
+.note-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  line-height: 1.7;
+  font-size: 0.97rem;
+}
+.note-body a { color: var(--navy-l); }
+.note-body a.nostr-mention { color: var(--orange); font-weight: 600; text-decoration: none; }
+.note-body a.nostr-mention:hover { text-decoration: underline; }
+
+/* ── Embedded notes (kind-1 quoted via nevent/note, NIP-52 calendar) ── */
+.embed-note {
+  background: var(--cream-d);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+  margin: 0.6rem 0;
+  font-size: 0.92rem;
+  white-space: normal;
+}
+.embed-note .embed-author {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.82rem;
+}
+.embed-note .embed-author img {
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--cream);
+  flex-shrink: 0;
+}
+.embed-note .embed-author .author-name {
+  font-weight: 700;
+  color: var(--navy);
+}
+.embed-note .embed-author time {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-style: italic;
+}
+.embed-note .embed-body {
+  color: var(--text);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.embed-note .embed-footer {
+  margin-top: 0.5rem;
+  font-size: 0.78rem;
+}
+.embed-note .embed-footer a {
+  color: var(--muted);
+  text-decoration: none;
+  letter-spacing: 0.04em;
+}
+.embed-note .embed-footer a:hover { color: var(--orange); }
+
+.embed-note.is-missing {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 0.88rem;
+  padding: 0.7rem 0.9rem;
+}
+.embed-note.is-missing a { color: var(--navy-l); margin-left: 0.4rem; }
+
+.embed-note.is-naddr {
+  display: flex;
+  align-items: center;
+  padding: 0.7rem 0.9rem;
+}
+.embed-note.is-naddr a {
+  color: var(--navy-l);
+  font-weight: 600;
+  text-decoration: none;
+}
+.embed-note.is-naddr a:hover { color: var(--orange); }
+
+.embed-note.is-event .event-title {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-weight: 700;
+  font-size: 1.02rem;
+  line-height: 1.25;
+  color: var(--navy);
+  margin-bottom: 0.35rem;
+  word-break: break-word;
+}
+.embed-note.is-event .event-meta {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  color: var(--text);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  margin: 0.15rem 0;
+  word-break: break-word;
+}
+.embed-note.is-event .event-meta .event-icon {
+  flex-shrink: 0;
+  width: 1.1rem;
+  text-align: center;
+  font-style: normal;
+}
+
+/* ── Per-note action bar (Reply / Like / Repost / Zap) ──────────── */
+.note-actions {
+  display: flex;
+  gap: 0.25rem;
+  margin-top: 0.65rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--border);
+  flex-wrap: wrap;
+}
+.note-actions button {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.84rem;
+  padding: 0.32rem 0.65rem;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  transition: background 0.15s, color 0.15s;
+}
+.note-actions button:hover {
+  background: rgba(247,147,26,0.1);
+  color: var(--orange);
+}
+.note-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.note-actions button:disabled:hover {
+  background: transparent;
+  color: var(--muted);
+}
+.note-actions .lb-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+.note-actions .like-btn[aria-pressed="true"],
+.note-actions .repost-btn[aria-pressed="true"] {
+  color: var(--orange);
+}
+.note-actions .like-btn[aria-pressed="true"] .lb-icon,
+.note-actions .repost-btn[aria-pressed="true"] .lb-icon {
+  color: var(--orange);
+}
+
+/* ── Note footer + reply tree ───────────────────────────────────── */
+.note-footer {
+  margin-top: 0.7rem;
+  font-size: 0.78rem;
+}
+.note-footer a {
+  color: var(--muted);
+  text-decoration: none;
+  letter-spacing: 0.04em;
+}
+.note-footer a:hover { color: var(--orange); }
+
+.replies-heading {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--navy);
+  margin: 0 0 1rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 2px solid var(--orange);
+  display: inline-block;
+}
+.replies-empty {
+  color: var(--muted);
+  font-style: italic;
+  padding: 1rem 0;
+}
+
+.reply-children {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  border-left: 2px solid var(--cream-d);
+  padding-left: 0.9rem;
+}
+
+@media (max-width: 600px) {
+  .note-card { padding: 0.95rem 1rem; }
+  .note-card.is-root { padding: 1.15rem 1.15rem; }
+  .reply-children { padding-left: 0.6rem; }
+}
