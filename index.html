@@ -243,6 +243,71 @@
       color: var(--orange);
     }
 
+    /* ── "More ▾" dropdown — tucks secondary nav links (Resources, Links)
+       behind a single menu item so the bar stays roomy as the nav grows. */
+    .nav-more { position: relative; }
+    .nav-more > summary {
+      list-style: none;
+      cursor: pointer;
+      user-select: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      color: var(--cream-d);
+      font-size: 0.9rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      padding: 0.35rem 0.75rem;
+      border-radius: 4px;
+      transition: background 0.15s, color 0.15s;
+    }
+    .nav-more > summary::-webkit-details-marker { display: none; }
+    .nav-more > summary::marker { content: ''; }
+    .nav-more > summary:hover,
+    .nav-more[open] > summary {
+      background: rgba(247,147,26,0.18);
+      color: var(--orange);
+    }
+    .nav-more .caret {
+      font-size: 0.7em;
+      transition: transform 0.15s;
+    }
+    .nav-more[open] .caret { transform: rotate(180deg); }
+    .nav-more-menu {
+      position: absolute;
+      top: calc(100% + 0.35rem);
+      right: 0;
+      min-width: 160px;
+      background: var(--navy);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+      list-style: none;
+      margin: 0;
+      padding: 0.3rem 0;
+      z-index: 60;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+    .nav-more-menu li { margin: 0; }
+    .nav-more-menu a {
+      display: block;
+      padding: 0.5rem 1rem;
+      color: var(--cream-d);
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      transition: background 0.12s, color 0.12s;
+    }
+    .nav-more-menu a:hover {
+      background: rgba(247,147,26,0.18);
+      color: var(--orange);
+    }
+
     /* ── Boost slot (login UI lives inline inside the boost modal) ── */
     #lb-boost-slot {
       flex-shrink: 0;
@@ -856,11 +921,18 @@
     <a class="nav-site-name" href="#hero">Local Bitcoiners</a>
     <nav aria-label="Main navigation">
       <ul>
-        <li><a href="#meetups">Resources</a></li>
         <li><a href="#episodes">Episodes</a></li>
         <li><a href="boosts.html">Boosts</a></li>
-        <li><a href="newevent.html">Submit a Meetup</a></li>
-        <li><a href="#links">Links</a></li>
+        <li><a href="newevent.html">Submit Meetup</a></li>
+        <li>
+          <details class="nav-more">
+            <summary>More <span class="caret" aria-hidden="true">▾</span></summary>
+            <ul class="nav-more-menu">
+              <li><a href="#meetups">Resources</a></li>
+              <li><a href="#links">Links</a></li>
+            </ul>
+          </details>
+        </li>
       </ul>
     </nav>
     <div id="lb-boost-slot" aria-label="Boost the Show">
@@ -1682,5 +1754,6 @@
      the browser menu. Self-suppresses on desktop, in standalone mode,
      and after a recent dismiss. -->
 <script src="assets/widgets/pwa-install.js" defer></script>
+<script src="assets/js/nav.js" defer></script>
 </body>
 </html>

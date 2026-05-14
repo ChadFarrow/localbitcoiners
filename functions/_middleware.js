@@ -545,11 +545,18 @@ function renderEpisodePage(ep) {
     <a class="nav-site-name" href="/">Local Bitcoiners</a>
     <nav aria-label="Main navigation">
       <ul>
-        <li><a href="/#meetups">Resources</a></li>
         <li><a href="/#episodes">Episodes</a></li>
         <li><a href="/boosts.html">Boosts</a></li>
-        <li><a href="/newevent.html">Submit a Meetup</a></li>
-        <li><a href="/#links">Links</a></li>
+        <li><a href="/newevent.html">Submit Meetup</a></li>
+        <li>
+          <details class="nav-more">
+            <summary>More <span class="caret" aria-hidden="true">▾</span></summary>
+            <ul class="nav-more-menu">
+              <li><a href="/#meetups">Resources</a></li>
+              <li><a href="/#links">Links</a></li>
+            </ul>
+          </details>
+        </li>
       </ul>
     </nav>
     <div id="lb-boost-slot" aria-label="Boost the Show">
@@ -657,6 +664,7 @@ function renderEpisodePage(ep) {
 <script src="/assets/widgets/login-widget.js" defer></script>
 
 <script src="/assets/js/episode-enhance.js" defer></script>
+<script src="/assets/js/nav.js" defer></script>
 <script type="module" src="/assets/js/ep-boosts.js"></script>
 
 </body>
