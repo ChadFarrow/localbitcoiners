@@ -39,6 +39,11 @@ the two views can be diffed (Fountain's accounting vs. our LN node + sat
 math). Same Firestore queries already made for the stream aggregates —
 no extra API calls.
 
+And ``data/sats.json`` — a faithful, complete JSON mirror of sats.csv
+(wrapper object + one object per row, JSON-native types) for the website
+to consume. The website does all filtering/bucketing; this is just the
+raw data in a second format.
+
 State:
   ``state.json`` (gitignored) carries the Alby Hub ``last_processed`` cursor
   for incremental boost pagination. Stream rows and the Fountain ledger are
@@ -71,6 +76,7 @@ SCRIPT_DIR       = Path(__file__).resolve().parent
 STATE_FILE       = SCRIPT_DIR / "state.json"
 REPO_ROOT        = Path(__file__).resolve().parent.parent.parent
 CSV_FILE         = REPO_ROOT / "data" / "sats.csv"
+SATS_JSON        = REPO_ROOT / "data" / "sats.json"
 FOUNTAIN_CSV     = REPO_ROOT / "data" / "fountain-api.csv"
 
 # Show launched 2026-02-02 — same backstop the episodesats leaderboard uses.
@@ -358,6 +364,53 @@ def write_csv_full(rows):
         writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
         writer.writeheader()
         writer.writerows(sorted_rows)
+
+
+def _coerce_json_value(col, raw):
+    """Coerce one CSV cell (always a string on read-back) to its JSON type.
+
+    The blank→null check runs first, so every empty cell becomes null
+    regardless of column — one consistent rule. episode_num deliberately
+    stays a string: the leading zeros ("001", "011") are load-bearing for
+    episode matching and must not be cast to int."""
+    if raw == "" or raw is None:
+        return None
+    if col in ("total_sats", "our_sats"):
+        return int(raw)
+    if col == "divisor":
+        return float(raw)
+    if col == "show_level":
+        return raw == "true"
+    return raw  # episode_num + everything else stay strings
+
+
+def write_sats_json():
+    """Mirror data/sats.csv as data/sats.json for the website to consume.
+
+    Reads the CSV back (rather than re-using in-memory rows) so the JSON is
+    guaranteed to match it exactly — same rows, same order, same columns —
+    and so any future CSV schema change flows through automatically. Values
+    get JSON-native types via _coerce_json_value; blanks become null. No
+    filtering, no business logic — the website does all of that.
+
+    Each row object is written on its own line to keep git diffs readable
+    (this file is committed + autopushed daily)."""
+    rows = []
+    with CSV_FILE.open("r", newline="", encoding="utf-8") as f:
+        for raw in csv.DictReader(f):
+            rows.append({col: _coerce_json_value(col, raw.get(col, "")) for col in CSV_COLUMNS})
+
+    generated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    body = (
+        "{\n"
+        f'  "generated_at": {json.dumps(generated_at)},\n'
+        '  "source": "sats.csv",\n'
+        f'  "row_count": {len(rows)},\n'
+        '  "rows": [\n'
+        + ",\n".join("    " + json.dumps(r, ensure_ascii=False) for r in rows)
+        + "\n  ]\n}\n"
+    )
+    SATS_JSON.write_text(body, encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -949,7 +1002,7 @@ def git_autopush():
     """Best-effort commit + push of the data CSVs. Failures log and return —
     the local CSVs are the source of truth; a missed push just means the next
     run picks up where this one left off."""
-    files = ["data/sats.csv", "data/fountain-api.csv"]
+    files = ["data/sats.csv", "data/sats.json", "data/fountain-api.csv"]
     try:
         subprocess.run(
             ["git", "pull", "--rebase", "--autostash"],
@@ -968,7 +1021,7 @@ def git_autopush():
             cwd=REPO_ROOT, check=True, capture_output=True,
         )
         subprocess.run(["git", "push"], cwd=REPO_ROOT, check=True, capture_output=True)
-        print("  [autopush] pushed sats.csv + fountain-api.csv")
+        print("  [autopush] pushed sats.csv + sats.json + fountain-api.csv")
     except subprocess.CalledProcessError as e:
         err = e.stderr.decode() if e.stderr else ""
         print(f"  [autopush] failed: {e}\n  {err}")
@@ -1083,6 +1136,9 @@ def main():
 
     write_csv_full(all_rows)
     print(f"\nWrote {len(all_rows)} rows → {CSV_FILE}")
+
+    write_sats_json()
+    print(f"Wrote {len(all_rows)} rows → {SATS_JSON}")
 
     write_fountain_csv(fountain_rows)
     print(f"Wrote {len(fountain_rows)} rows → {FOUNTAIN_CSV}")
