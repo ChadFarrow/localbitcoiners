@@ -60,12 +60,19 @@ import { configureBoostActions } from '/assets/js/boost-actions.js'
 })
 
 function repaint(rootEvent, childrenOf, epNum, statusEl, listEl) {
-  // Boost-bot notes carry the episode info in the 🎙️ line as
-  // `Local Bitcoiners | Ep. NNN - <title>`. Word-bounded with optional
-  // leading zeros so "Ep. 11" and "Ep. 011" both resolve to the same
-  // page. Anchors are direct-reply matches under the root; their full
+  // Boost-bot notes carry the episode info in the 🎙️ line, copied
+  // verbatim from the Fountain title. Most episodes read `… | Ep. NNN`
+  // — matched word-bounded with optional leading zeros so "Ep. 11" and
+  // "Ep. 011" both resolve here. Episode 1 is the lone exception: its
+  // Fountain title is `Local Bitcoiners • 001. …` with no "Ep." marker,
+  // so the second alternative (anchored to the show-name prefix to
+  // avoid matching stray bullet lists in message bodies) catches it.
+  // Anchors are direct-reply matches under the root; their full
   // descendant tree comes along via renderRepliesTree.
-  const epPattern = new RegExp(`\\bEp\\.?\\s*0*${epNum}\\b`, 'i')
+  const epPattern = new RegExp(
+    `\\bEp\\.?\\s*0*${epNum}\\b|Local Bitcoiners\\s*•\\s*0*${epNum}\\.`,
+    'i'
+  )
   const directReplies = childrenOf.get(rootEvent.id) || []
   const anchors = directReplies.filter((ev) => epPattern.test(ev.content || ''))
 
