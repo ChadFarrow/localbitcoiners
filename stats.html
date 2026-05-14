@@ -45,7 +45,10 @@
   <link rel="preload" as="font" type="font/woff2" href="assets/fonts/source-serif-4.woff2" crossorigin />
   <link rel="preload" as="font" type="font/woff2" href="assets/fonts/playfair-display.woff2" crossorigin />
 
-  <!-- Nav identity-slot + boost-slot styling lives here. -->
+  <!-- boosts-thread.css styles the boost note cards in the "Biggest
+       Boosts" feed; boost-actions.css covers the action bar + the nav
+       identity/boost slots. -->
+  <link rel="stylesheet" href="/assets/css/boosts-thread.css" />
   <link rel="stylesheet" href="/assets/css/boost-actions.css" />
 
   <style>
@@ -367,6 +370,59 @@
       font-weight: 600;
       text-anchor: start;
     }
+
+    /* ── Pre-Nostr boost mini-cards (mirrors episode.css) ── */
+    .ep-supporter-list {
+      list-style: none; margin: 0; padding: 0;
+      display: flex; flex-direction: column; gap: 0.6rem;
+    }
+    .ep-supporter-row {
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: 10px; padding: 0.85rem 1rem;
+    }
+    .ep-supporter-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 0.6rem 1rem; flex-wrap: wrap;
+    }
+    .ep-supporter-identity {
+      display: inline-flex; align-items: center; gap: 0.5rem; min-width: 0;
+    }
+    .ep-supporter-avatar {
+      width: 30px; height: 30px; border-radius: 50%;
+      background: var(--cream-d); border: 1px solid var(--border);
+      background-size: cover; background-position: center; flex-shrink: 0;
+    }
+    .ep-supporter-name {
+      font-weight: 600; color: var(--navy); font-size: 0.95rem;
+      overflow-wrap: anywhere;
+    }
+    .ep-supporter-meta {
+      display: inline-flex; align-items: center; gap: 0.5rem; flex-shrink: 0;
+    }
+    .ep-supporter-sats {
+      font-weight: 700; color: var(--orange-d); font-size: 0.9rem;
+      white-space: nowrap;
+    }
+    .ep-supporter-app {
+      font-size: 0.72rem; font-weight: 600; letter-spacing: 0.03em;
+      text-transform: uppercase; color: var(--muted);
+      background: var(--cream); border: 1px solid var(--border);
+      border-radius: 999px; padding: 0.15rem 0.55rem; white-space: nowrap;
+    }
+    .ep-supporter-msg {
+      margin-top: 0.55rem; font-size: 0.98rem; line-height: 1.6;
+      color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere;
+    }
+    .stats-prenostr-ep {
+      font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em;
+      text-transform: uppercase; color: var(--white);
+      background: var(--orange); border-radius: 999px;
+      padding: 0.15rem 0.55rem; white-space: nowrap;
+    }
+
+    /* Biggest Boosts feed — note cards come from boosts-thread.css;
+       just space the top-level boost entries apart. */
+    .stats-boost-feed .note-list > li + li { margin-top: 0.6rem; }
     /* ── Footer (mirrors index.html) ── */
     footer {
       background: #12253f;
@@ -516,6 +572,30 @@
   </div>
 </section>
 
+<!-- ══════════════════════════════ BIGGEST BOOSTS ══════════════════════════════ -->
+<section class="section-wide stats-boost-feed">
+  <h2 class="stats-chart-heading">Biggest Boosts</h2>
+  <p class="stats-chart-sub">Every 10,000+ sat boost on Nostr, largest first</p>
+  <div data-stats-boosts>
+    <div class="stats-loading">
+      <div class="loading-spinner"></div><br />
+      Loading boosts from Nostr…
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════ BIGGEST PRE-NOSTR BOOSTS ══════════════════════════════ -->
+<section class="section-wide">
+  <h2 class="stats-chart-heading">Biggest Pre-Nostr Boosts</h2>
+  <p class="stats-chart-sub">10,000+ sat boosts from before the show published to Nostr, largest first</p>
+  <div data-stats-prenostr>
+    <div class="stats-loading">
+      <div class="loading-spinner"></div><br />
+      Loading pre-Nostr boosts…
+    </div>
+  </div>
+</section>
+
 <!-- ══════════════════════════════ FOOTER ══════════════════════════════ -->
 <footer>
   <p>© 2026 Local Bitcoiners Podcast &nbsp;·&nbsp; <a href="mailto:localbitcoiners@gmail.com">localbitcoiners@gmail.com</a></p>
@@ -577,5 +657,6 @@
      which stats.js uses to resolve npub labels in the supporter board. -->
 <script src="/assets/js/episode-enhance.js" defer></script>
 <script src="/assets/js/stats.js" defer></script>
+<script type="module" src="/assets/js/stats-boosts.js"></script>
 </body>
 </html>

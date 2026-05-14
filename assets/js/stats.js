@@ -31,13 +31,30 @@
     'npub1f5pre6wl6ad87vr4hr5wppqq30sh58m4p33mthnjreh03qadcajs7gwt3z': true, // Rev Hodl
   };
 
+  // Boosts settled before the boost bot's first kind-1 note were never
+  // published to Nostr — they surface in the pre-Nostr feed instead.
+  var PRE_NOSTR_CUTOFF_MS = Date.parse('2026-03-24T02:23:29Z');
+  var BIG_BOOST_MIN = 10000;
+
+  // The bot backfilled a few pre-cutoff boosts with real Nostr notes
+  // after the fact, so the cutoff alone would wrongly list them as
+  // pre-Nostr. Hardcoded exclusions by payment_hash — these show in the
+  // Nostr "Biggest Boosts" feed instead. Not worth a general fix: the
+  // bot is reliable now, so this list shouldn't grow.
+  var PRE_NOSTR_EXCLUDE = {
+    // npub1vpx9596… 10,420 sats, Ep 1 — settled 2026-02-09, note
+    // published 2026-04-22 (nevent1qqsrg23qx…). A top-5 all-time boost.
+    '9afc2918883d0b147906abff80d0d58b0e0ae6ba6a5f21907342f4772432e3ad': true,
+  };
+
   var canvas = document.querySelector('[data-stats-canvas]');
   var subEl = document.querySelector('[data-stats-sub]');
   var boardCanvas = document.querySelector('[data-stats-leaderboard]');
   var boardSubEl = document.querySelector('[data-board-sub]');
   var peopleCanvas = document.querySelector('[data-stats-people]');
   var peopleSubEl = document.querySelector('[data-people-sub]');
-  if (!canvas && !boardCanvas && !peopleCanvas) return;
+  var preNostrCanvas = document.querySelector('[data-stats-prenostr]');
+  if (!canvas && !boardCanvas && !peopleCanvas && !preNostrCanvas) return;
 
   Promise.all([
     fetch(SATS_URL).then(function (r) { return r.ok ? r.json() : null; })
@@ -56,6 +73,7 @@
     render(rows, rssXml ? parseEpisodes(rssXml) : []);
     renderLeaderboard(rows);
     renderIdentityBoard(rows);
+    renderBigPreNostr(rows);
   });
 
   function showError() {
@@ -63,6 +81,7 @@
     if (canvas) canvas.innerHTML = msg;
     if (boardCanvas) boardCanvas.innerHTML = msg;
     if (peopleCanvas) peopleCanvas.innerHTML = msg;
+    if (preNostrCanvas) preNostrCanvas.innerHTML = msg;
   }
 
   // ── RSS parsing — episode number + publish date for the markers ────
@@ -458,6 +477,143 @@
         }
       }).catch(function () {});
     }
+  }
+
+  // ── Biggest pre-Nostr boosts — mini-card feed ──────────────────────
+  // The 10k+ counterpart to the episode pages' "Pre-Nostr Boosts
+  // Received" section, aggregated across every episode (and show-level
+  // boosts), largest-first. Only boosts settled before the bot cutoff.
+  function renderBigPreNostr(rows) {
+    if (!preNostrCanvas) return;
+
+    var boosts = rows.filter(function (row) {
+      if (row.kind !== 'boost' || row.total_sats < BIG_BOOST_MIN) return false;
+      if (PRE_NOSTR_EXCLUDE[row.payment_hash]) return false;  // backfilled — has a note
+      var t = Date.parse(row.settled_at);
+      return isFinite(t) && t < PRE_NOSTR_CUTOFF_MS;
+    });
+    if (!boosts.length) {
+      preNostrCanvas.innerHTML =
+        '<p class="stats-error">No 10,000+ sat pre-Nostr boosts.</p>';
+      return;
+    }
+    boosts.sort(function (a, b) { return b.total_sats - a.total_sats; });
+
+    var list = document.createElement('ul');
+    list.className = 'ep-supporter-list';
+    var npubEls = [];
+    for (var i = 0; i < boosts.length; i++) {
+      var built = buildPreNostrRow(boosts[i]);
+      list.appendChild(built.li);
+      if (built.npubEl) npubEls.push(built.npubEl);
+    }
+    preNostrCanvas.innerHTML = '';
+    preNostrCanvas.appendChild(list);
+
+    // Resolve npub labels via the shared relay helper, same as the
+    // episode pages and the supporter leaderboard.
+    var npubs = [];
+    var seen = Object.create(null);
+    for (var n = 0; n < npubEls.length; n++) {
+      if (!seen[npubEls[n].npub]) {
+        seen[npubEls[n].npub] = 1;
+        npubs.push(npubEls[n].npub);
+      }
+    }
+    if (npubs.length && window.LBEpisodeEnhance &&
+        typeof window.LBEpisodeEnhance.fetchProfilesByNpub === 'function') {
+      window.LBEpisodeEnhance.fetchProfilesByNpub(npubs).then(function (profiles) {
+        for (var m = 0; m < npubEls.length; m++) {
+          var prof = profiles[npubEls[m].npub];
+          if (!prof) continue;
+          if (prof.name) npubEls[m].nameEl.textContent = prof.name;
+          if (prof.picture) {
+            npubEls[m].avatarEl.style.backgroundImage =
+              'url("' + prof.picture.replace(/"/g, '%22') + '")';
+          }
+        }
+      }).catch(function () {});
+    }
+  }
+
+  function buildPreNostrRow(row) {
+    var li = document.createElement('li');
+    li.className = 'ep-supporter-row';
+
+    var head = document.createElement('div');
+    head.className = 'ep-supporter-head';
+
+    var ident = document.createElement('span');
+    ident.className = 'ep-supporter-identity';
+    var avatar = document.createElement('span');
+    avatar.className = 'ep-supporter-avatar';
+    avatar.setAttribute('aria-hidden', 'true');
+    var name = document.createElement('span');
+    name.className = 'ep-supporter-name';
+    if (row.sender_name) name.textContent = row.sender_name;
+    else if (row.sender_npub) name.textContent = shortNpub(row.sender_npub);
+    else name.textContent = 'Anonymous';
+    ident.appendChild(avatar);
+    ident.appendChild(name);
+
+    var npubEl = null;
+    if (row.sender_npub) {
+      ident.setAttribute('data-npub', row.sender_npub);
+      npubEl = { npub: row.sender_npub, nameEl: name, avatarEl: avatar };
+    }
+
+    var meta = document.createElement('span');
+    meta.className = 'ep-supporter-meta';
+    var epBadge = document.createElement('span');
+    epBadge.className = 'stats-prenostr-ep';
+    epBadge.textContent = row.episode_num != null
+      ? 'Ep ' + parseInt(row.episode_num, 10)
+      : 'Show';
+    meta.appendChild(epBadge);
+    var sats = document.createElement('span');
+    sats.className = 'ep-supporter-sats';
+    sats.textContent = fmtSats(row.total_sats) + ' sats';
+    meta.appendChild(sats);
+    if (row.app) {
+      var app = document.createElement('span');
+      app.className = 'ep-supporter-app';
+      app.textContent = row.app;
+      meta.appendChild(app);
+    }
+
+    head.appendChild(ident);
+    head.appendChild(meta);
+    li.appendChild(head);
+
+    var msg = cleanMessage(row.message);
+    if (msg) {
+      var p = document.createElement('p');
+      p.className = 'ep-supporter-msg';
+      p.textContent = msg;
+      li.appendChild(p);
+    }
+    return { li: li, npubEl: npubEl };
+  }
+
+  // Strip Fountain's auto-appended episode link / bare nevent lines and
+  // the "*no comment with boost*" sentinel; normalise the ledger's
+  // literal "\n" sequences to real newlines. (Mirrors ep-sats.js.)
+  function cleanMessage(raw) {
+    if (!raw) return '';
+    if (raw.trim() === '*no comment with boost*') return '';
+    var lines = raw.replace(/\\r\\n|\\n|\\r/g, '\n').split('\n')
+      .map(function (l) { return l.trim(); })
+      .filter(function (l) {
+        if (!l) return false;
+        if (/^https:\/\/fountain\.fm\/\S*$/i.test(l)) return false;
+        if (/^nostr:[a-z0-9]+$/i.test(l)) return false;
+        return true;
+      });
+    return lines.join('\n')
+      .replace(/nostr:((?:npub1|nprofile1)[a-z0-9]+)/gi, function (whole, id) {
+        return '@' + id.slice(0, 12) + '…';
+      })
+      .replace(/nostr:(?:note1|nevent1|naddr1)[a-z0-9]+/gi, '[note]');
   }
 
   // ── Helpers ────────────────────────────────────────────────────────
