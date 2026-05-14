@@ -533,7 +533,7 @@ function renderEpisodePage(ep) {
 <body>
 
 <script type="application/json" id="lb-ep-data">${jsonForScript({
-    episode: { number: ep.number, title: ep.title, guid: ep.guid, fountainUrl: ep.fountainUrl },
+    episode: { number: ep.number, title: ep.title, guid: ep.guid, fountainUrl: ep.fountainUrl, pubDate: isoPubDate },
     splits: ep.splits,
   })}</script>
 
@@ -606,11 +606,27 @@ function renderEpisodePage(ep) {
     </div>
   </article>` : ""}
 
+  <!-- Per-episode sats-over-time chart. Ships hidden — ep-sats.js fetches
+       /data/sats.json, and reveals the card only if this episode has
+       boost/stream data to plot. -->
+  <article class="ep-card ep-card-chart" data-ep-chart hidden></article>
+
+  <!-- Stream supporters — who streamed sats to this episode and how
+       much. Hydrated by ep-sats.js from /data/sats.json; ships hidden,
+       revealed only for episodes that have stream rows. -->
+  <section class="ep-supporter-section" data-ep-streams hidden></section>
+
   <section class="ep-boosts" data-ep-num="${ep.number}" aria-labelledby="ep-boosts-heading">
     <h2 class="ep-boosts-heading" id="ep-boosts-heading">Boosts on this episode</h2>
     <p class="ep-boosts-status" data-ep-boosts-status>Loading boosts…</p>
     <div class="ep-boosts-list" data-ep-boosts-list></div>
   </section>
+
+  <!-- Pre-Nostr boost list — boosts that landed before the boost bot
+       started publishing kind-1 notes, so they never made it into the
+       thread above. Hydrated by ep-sats.js from /data/sats.json; ships
+       hidden, revealed only for episodes that have such boosts. -->
+  <section class="ep-supporter-section" data-ep-prenostr hidden></section>
 
   <p class="ep-back"><a href="/#episodes">← All episodes</a></p>
 </main>
@@ -664,6 +680,7 @@ function renderEpisodePage(ep) {
 <script src="/assets/widgets/login-widget.js" defer></script>
 
 <script src="/assets/js/episode-enhance.js" defer></script>
+<script src="/assets/js/ep-sats.js" defer></script>
 <script src="/assets/js/nav.js" defer></script>
 <script type="module" src="/assets/js/ep-boosts.js"></script>
 

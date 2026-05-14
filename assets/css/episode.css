@@ -482,6 +482,70 @@ nav ul li a:hover {
 }
 .person-name { color: inherit; }
 
+/* ── Per-episode sats chart ───────────────────────────────────────
+   Hydrated client-side by /assets/js/ep-chart.js from /data/sats.json.
+   The card ships hidden and is revealed only when the episode has
+   boost/stream data to plot. */
+.ep-card-chart { padding: 1.4rem 1.5rem 1.2rem; }
+.ep-chart-heading {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--navy);
+  border-bottom: 2px solid var(--orange);
+  display: inline-block;
+  padding-bottom: 0.35rem;
+}
+.ep-chart-sub {
+  margin-top: 0.55rem;
+  font-size: 0.92rem;
+  color: var(--muted);
+  font-style: italic;
+}
+.ep-chart-controls {
+  display: flex;
+  gap: 0.45rem;
+  margin-top: 0.9rem;
+}
+.ep-chart-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--navy);
+  background: var(--cream);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.3rem 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.ep-chart-opt:hover { border-color: var(--orange); }
+.ep-chart-opt input { accent-color: var(--orange); margin: 0; cursor: pointer; }
+.ep-chart-canvas { margin-top: 1rem; }
+.ep-chart-svg { width: 100%; height: auto; display: block; }
+.ep-chart-grid { stroke: var(--border); stroke-width: 1; }
+.ep-chart-ylabel,
+.ep-chart-xlabel,
+.ep-chart-axis-title {
+  fill: var(--muted);
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: 12px;
+}
+.ep-chart-ylabel { text-anchor: end; }
+.ep-chart-xlabel { text-anchor: middle; }
+.ep-chart-axis-title { text-anchor: middle; font-style: italic; }
+.ep-chart-area { fill: rgba(247, 147, 26, 0.12); stroke: none; }
+.ep-chart-line {
+  fill: none;
+  stroke: var(--orange);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.ep-chart-dot { fill: var(--orange-d); stroke: var(--white); stroke-width: 1; }
+
 /* ── Per-episode boosts section ───────────────────────────────────
    Hydrated client-side by /assets/js/ep-boosts.js. Card styles for the
    actual boost notes live in /assets/css/boosts-thread.css. */
@@ -514,6 +578,103 @@ nav ul li a:hover {
 }
 .ep-boosts-anchors > li + li {
   margin-top: 0.4rem;
+}
+
+/* ── Supporter listings (Streams + Pre-Nostr Boosts) ──────────────
+   Shared mini-card styling for the two ep-sats.js sections hydrated
+   from /data/sats.json. Both ship hidden and are revealed only when
+   the episode has the relevant rows. */
+.ep-supporter-section { margin-top: 1.6rem; }
+.ep-supporter-heading {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 0.4rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 2px solid var(--orange);
+  display: inline-block;
+}
+.ep-supporter-sub {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 0.9rem;
+  margin-bottom: 0.9rem;
+}
+.ep-supporter-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.ep-supporter-row {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+}
+.ep-supporter-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem 1rem;
+  flex-wrap: wrap;
+}
+.ep-supporter-identity {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.ep-supporter-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--cream-d);
+  border: 1px solid var(--border);
+  background-size: cover;
+  background-position: center;
+  flex-shrink: 0;
+}
+.ep-supporter-name {
+  font-weight: 600;
+  color: var(--navy);
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}
+.ep-supporter-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+.ep-supporter-sats {
+  font-weight: 700;
+  color: var(--orange-d);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+.ep-supporter-app {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--cream);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  white-space: nowrap;
+}
+.ep-supporter-msg {
+  margin-top: 0.55rem;
+  font-size: 0.98rem;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* ── Back link + footer ───────────────────────────────────────── */
@@ -550,6 +711,8 @@ nav ul li a:hover {
   .ep-main { padding: 1.5rem 0.75rem 2.5rem; }
   .ep-card { padding: 1.4rem 1.1rem 1.6rem; border-radius: 10px; }
   .ep-card-people { padding: 0.9rem 1.1rem; }
+  .ep-card-chart { padding: 1.1rem 1.1rem 1rem; }
+  .ep-supporter-row { padding: 0.7rem 0.8rem; }
   .ep-actions .btn { font-size: 0.82rem; padding: 0.45rem 0.8rem; }
   .ep-shownotes {
     margin: 1.3rem -1.1rem -1.6rem;

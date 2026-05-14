@@ -339,4 +339,38 @@
     wireDownloadMp3();
     wireSubscribeCloser();
   }
+
+  // ── Shared profile resolver ─────────────────────────────────────
+  // Exposed for other episode-page modules (ep-sats.js's pre-Nostr
+  // boost list) that need npub → display name/avatar without
+  // re-implementing bech32 decode + relay querying. Returns a plain
+  // object keyed by the input npub strings; npubs with no resolvable
+  // kind-0 are simply absent from the result.
+  function fetchProfilesByNpub(npubs) {
+    var hexByNpub = Object.create(null);
+    var hexes = [];
+    for (var i = 0; i < npubs.length; i++) {
+      var npub = npubs[i];
+      if (hexByNpub[npub]) continue;
+      var hex = npubToHex(npub);
+      if (!hex) continue;
+      hexByNpub[npub] = hex;
+      hexes.push(hex);
+    }
+    if (!hexes.length) return Promise.resolve(Object.create(null));
+    return fetchProfiles(hexes).then(function (best) {
+      var out = Object.create(null);
+      for (var key in hexByNpub) {
+        var entry = best[hexByNpub[key]];
+        if (!entry) continue;
+        out[key] = {
+          name: pickName(entry.meta),
+          picture: safeImageUrl(entry.meta && entry.meta.picture),
+        };
+      }
+      return out;
+    });
+  }
+
+  window.LBEpisodeEnhance = { fetchProfilesByNpub: fetchProfilesByNpub };
 })();
