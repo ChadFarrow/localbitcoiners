@@ -44,6 +44,11 @@ And ``data/sats.json`` — a faithful, complete JSON mirror of sats.csv
 to consume. The website does all filtering/bucketing; this is just the
 raw data in a second format.
 
+Each row also carries a value-split breakdown — reed_sats / rev_sats /
+aquafox_sats / guests_sats / fountain_sats — calculated by applying the
+hand-maintained ruleset in ``data/value-splits.csv`` (a bot INPUT) to
+total_sats per the row's (scope, era). The five sum to total_sats.
+
 State:
   ``state.json`` (gitignored) carries the Alby Hub ``last_processed`` cursor
   for incremental boost pagination. Stream rows and the Fountain ledger are
@@ -78,6 +83,7 @@ REPO_ROOT        = Path(__file__).resolve().parent.parent.parent
 CSV_FILE         = REPO_ROOT / "data" / "sats.csv"
 SATS_JSON        = REPO_ROOT / "data" / "sats.json"
 FOUNTAIN_CSV     = REPO_ROOT / "data" / "fountain-api.csv"
+VALUE_SPLITS_CSV = REPO_ROOT / "data" / "value-splits.csv"  # hand-maintained bot INPUT
 
 # Show launched 2026-02-02 — same backstop the episodesats leaderboard uses.
 # Once state.json exists the cursor in there wins.
@@ -115,6 +121,14 @@ CSV_COLUMNS = [
     "divisor",         # 0.98 | 0.49 | 0.33 | 1.0; blank for stream-aggregate rows
     "total_sats_method",  # how total_sats was derived — see derive_total_method()
     "message",         # user-typed boost message; newlines collapsed to literal \n
+    # Value-split breakdown — calculated (not measured) by applying
+    # data/value-splits.csv to total_sats per the row's (scope, era). The five
+    # sum to total_sats. Blank when no split rule matches the row.
+    "reed_sats",
+    "rev_sats",
+    "aquafox_sats",
+    "guests_sats",
+    "fountain_sats",
 ]
 
 # fountain-api.csv — the *full* Fountain Firestore supporter view, one row per
@@ -375,7 +389,8 @@ def _coerce_json_value(col, raw):
     episode matching and must not be cast to int."""
     if raw == "" or raw is None:
         return None
-    if col in ("total_sats", "our_sats"):
+    if col in ("total_sats", "our_sats", "reed_sats", "rev_sats",
+               "aquafox_sats", "guests_sats", "fountain_sats"):
         return int(raw)
     if col == "divisor":
         return float(raw)
@@ -411,6 +426,113 @@ def write_sats_json():
         + "\n  ]\n}\n"
     )
     SATS_JSON.write_text(body, encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Value-split breakdown
+#
+# Each row's total_sats is apportioned into 5 recipient buckets (Reed, Rev,
+# aquafox/ad-budget, guests, Fountain) by applying the hand-maintained ruleset
+# in data/value-splits.csv. This is *calculated, not measured* — our node only
+# ever sees its own leg of a payment, never the per-recipient breakdown — so
+# the breakdown is the ruleset applied to the reconstructed total. The five
+# columns sum exactly to total_sats; rounding drift lands in the largest
+# bucket. Rows with no total_sats or no matching rule get blank split columns.
+# ---------------------------------------------------------------------------
+
+SPLIT_COLUMNS = ["reed_sats", "rev_sats", "aquafox_sats", "guests_sats", "fountain_sats"]
+
+
+def load_value_splits():
+    """Parse data/value-splits.csv into a list of rule dicts. Returns [] if the
+    file is missing — split columns then stay blank rather than crashing."""
+    if not VALUE_SPLITS_CSV.exists():
+        print(f"  [warn] {VALUE_SPLITS_CSV} not found — split columns will be blank")
+        return []
+    rules = []
+    with VALUE_SPLITS_CSV.open(newline="", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            rules.append({
+                "scope":        r["scope"],
+                "era_start":    r["era_start"],
+                "era_end":      r["era_end"],
+                "reed_pct":     float(r["reed_pct"]),
+                "rev_pct":      float(r["rev_pct"]),
+                "aquafox_pct":  float(r["aquafox_pct"]),
+                "guests_pct":   float(r["guests_pct"]),
+                "fountain_pct": float(r["fountain_pct"]),
+            })
+    return rules
+
+
+def _scope_candidates(row):
+    """Ordered value-split scopes to try for a sats row — most specific first.
+    Mirrors the scope names in value-splits.csv."""
+    source = row.get("source", "") or ""
+    if source == "lb_donation":
+        return ["lb_donation"]
+    if row.get("show_level") == "true":
+        # website show-level boosts use their own 33/33/34 flow; fall back to
+        # the channel-level `show` rule for anything else (Fountain, keysend).
+        if source == "website":
+            return ["show_website", "show"]
+        return ["show"]
+    num = row.get("episode_num", "") or ""
+    if num:
+        return [f"episode_{num}", "episode_default"]
+    return ["episode_default"]
+
+
+def _match_split_rule(rules, candidates, settled_at):
+    """First rule whose scope is in `candidates` and whose era window contains
+    settled_at. era_end blank = open-ended."""
+    for scope in candidates:
+        for rule in rules:
+            if rule["scope"] != scope:
+                continue
+            if settled_at >= rule["era_start"] and (
+                not rule["era_end"] or settled_at < rule["era_end"]
+            ):
+                return rule
+    return None
+
+
+def apply_value_splits(rows, rules):
+    """Populate the 5 split columns on every row. Calculated by matching the
+    row to a value-splits.csv rule (scope + settled_at era) and apportioning
+    total_sats. Rows with no total_sats or no matching rule get blank columns.
+    Returns (matched_count, unmatched_count)."""
+    matched = unmatched = 0
+    for row in rows:
+        for c in SPLIT_COLUMNS:
+            row[c] = ""
+        try:
+            total = int(row.get("total_sats") or 0)
+        except (TypeError, ValueError):
+            total = 0
+        if total <= 0:
+            continue
+        rule = _match_split_rule(
+            rules, _scope_candidates(row), row.get("settled_at", "") or "",
+        )
+        if not rule:
+            unmatched += 1
+            continue
+        buckets = {
+            "reed_sats":     round(total * rule["reed_pct"]     / 100),
+            "rev_sats":      round(total * rule["rev_pct"]      / 100),
+            "aquafox_sats":  round(total * rule["aquafox_pct"]  / 100),
+            "guests_sats":   round(total * rule["guests_pct"]   / 100),
+            "fountain_sats": round(total * rule["fountain_pct"] / 100),
+        }
+        # Absorb rounding drift in the largest bucket so the 5 sum to total.
+        drift = total - sum(buckets.values())
+        if drift:
+            buckets[max(buckets, key=buckets.get)] += drift
+        for c, v in buckets.items():
+            row[c] = v
+        matched += 1
+    return matched, unmatched
 
 
 # ---------------------------------------------------------------------------
@@ -1097,8 +1219,17 @@ def main():
     print(f"\n  Fountain stream-aggregate rows (→sats.csv): {len(stream_rows)}")
     print(f"  Full supporter rows (→fountain-api.csv):    {len(fountain_rows)}")
 
-    # ── Combine + stats ──
+    # ── Combine ──
     all_rows = all_boost_rows + stream_rows + node_stream_rows
+
+    # ── Value-split breakdown — apply the value-splits.csv ruleset ──
+    splits_rules = load_value_splits()
+    split_matched, split_unmatched = apply_value_splits(all_rows, splits_rules)
+    print()
+    print(f"Value-split breakdown: {len(splits_rules)} rules loaded → "
+          f"{split_matched} rows split, {split_unmatched} rows with no matching rule")
+
+    # ── Stats ──
     print()
     print(f"Total rows in regenerated CSV: {len(all_rows)} "
           f"({len(all_boost_rows)} boosts + {len(stream_rows)} Fountain streams "
