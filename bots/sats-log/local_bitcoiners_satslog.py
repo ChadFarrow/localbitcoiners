@@ -124,24 +124,54 @@ BAB_TITLE_PATTERNS = (
 )
 
 
+# Per-tx sender attribution. Use only when the classifier can't recover the
+# identity from the boost itself and the user has confirmed an attribution
+# out-of-band (or has a preference for which identity to display). Sets the
+# sender_npub / sender_name pair explicitly — pick whichever identity the
+# leaderboards should bucket under. An override blanks the other field so the
+# pair stays in the npub-vs-name convention enforced everywhere else.
+SENDER_OVERRIDES = {
+    # Sir Spencer's PodcastGuru boost on Ep. 009 — confirmed npub out-of-band.
+    "3ea283ab225cb5ad18f66f4030adf00f3fa7dac92d710603eee920bda5bf08be": {
+        "sender_npub": "npub1yvscx9vrmpcmwcmydrm8lauqdpngum4ne8xmkgc2d4rcaxrx7tkswdwzdu",
+        "sender_name": "",
+    },
+    # btcwrestle — boost the leaderboard should bucket by name rather than npub.
+    "2c080dad8d607e8a531790b2a4d4848f8fdb9c99bdc5a387b8a26bb39372366f": {
+        "sender_npub": "",
+        "sender_name": "btcwrestle",
+    },
+}
+
+
 def apply_manual_overrides(row):
-    """Mutate `row` in place to apply manual reclassifications. Returns row."""
+    """Mutate `row` in place to apply manual reclassifications. Returns row.
+
+    Episode and sender overrides are independent — a row can hit both if its
+    payment hash matches in SENDER_OVERRIDES *and* it matches an episode
+    override condition. Idempotent on already-overridden rows so it's safe
+    to re-apply on every CSV reload.
+    """
     ph    = row.get("payment_hash", "") or ""
     title = row.get("episode_title", "") or ""
 
+    # Episode re-attribution
     if ph in LIVE_BOOST_HASHES:
         row["episode_id"]    = LIVE_EP_FOUNTAIN_ID
         row["episode_num"]   = LIVE_EP_NUM
         row["episode_title"] = LIVE_EP_TITLE
         row["show_level"]    = "false"
-        return row
-
-    if any(p in title for p in BAB_TITLE_PATTERNS):
+    elif any(p in title for p in BAB_TITLE_PATTERNS):
         row["episode_id"]    = ""
         row["episode_num"]   = ""
         row["episode_title"] = ""
         row["show_level"]    = "true"
-        return row
+
+    # Sender re-attribution
+    if ph in SENDER_OVERRIDES:
+        ov = SENDER_OVERRIDES[ph]
+        row["sender_npub"] = ov.get("sender_npub", "")
+        row["sender_name"] = ov.get("sender_name", "")
 
     return row
 
@@ -603,6 +633,11 @@ def main():
     # old per-minute stream rows from sats.csv.
     existing_rows       = load_existing_rows()
     existing_boost_rows = [r for r in existing_rows if r.get("kind") != "stream"]
+    # Re-run overrides on every reload so edits to LIVE_BOOST_HASHES /
+    # BAB_TITLE_PATTERNS / SENDER_OVERRIDES take effect on the next run
+    # without a full CSV regen.
+    for r in existing_boost_rows:
+        apply_manual_overrides(r)
     existing_hashes     = {r["payment_hash"] for r in existing_boost_rows if r.get("payment_hash")}
     print(f"Existing CSV: {len(existing_rows)} rows total → "
           f"{len(existing_boost_rows)} boost rows kept, "
