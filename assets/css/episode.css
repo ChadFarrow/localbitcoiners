@@ -122,6 +122,18 @@ nav ul li a:hover {
   background: rgba(247,147,26,0.18);
   color: var(--orange);
 }
+/* Nav stays single-row at desktop. Below ~760px the main link list
+   wraps under the logo/name + boost/identity slots; below 720px the
+   link list hides entirely (boosts.html link cluster is reachable from
+   the page footer). */
+@media (max-width: 760px) {
+  .nav-inner { gap: 0.5rem; flex-wrap: wrap; height: auto; padding: 0.6rem 1rem; }
+  .nav-site-name { font-size: 1rem; flex: 1; min-width: 0; }
+  nav { order: 4; flex-basis: 100%; }
+  nav ul { justify-content: center; gap: 0.25rem; flex-wrap: wrap; }
+  nav ul li a { padding: 0.3rem 0.7rem; font-size: 0.8rem; }
+  #lb-boost-slot { flex-shrink: 0; }
+}
 @media (max-width: 720px) {
   nav ul { display: none; }
 }

@@ -1,0 +1,378 @@
+/* Shared styles for boost mutation UI — the per-card action bar
+   (Reply / Repost / Like / Zap), inline reply composer, zap modal,
+   toast notifications, and the nav-level identity + boost-the-show
+   slots. Used by /boosts.html and /ep### pages.
+
+   Pairs with assets/js/boost-actions.js. Relies on the host page
+   defining the LB color variables on :root —
+   --cream, --cream-d, --navy, --navy-l, --orange, --orange-d, --text,
+   --muted, --border, --white. */
+
+/* ── Nav: Boost-the-Show + Identity placeholders ──────────────────
+   Visible immediately on page load, swapped out by the React widget
+   bundle once it boots. The "skeleton-shimmer" pulse is what returning
+   logged-in users see in the brief window before the IdentityWidget
+   replaces the placeholder with their avatar. */
+#lb-boost-slot {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+}
+.lb-boost-placeholder {
+  background: #f7931a;
+  color: #ffffff;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.3rem 0.65rem;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  transition: background 0.15s;
+}
+.lb-boost-placeholder:hover { background: #d97b0e; }
+.lb-boost-placeholder:disabled { opacity: 0.6; cursor: wait; }
+.lb-boost-placeholder svg { width: 11px; height: 11px; flex-shrink: 0; }
+.lb-boost-placeholder .lb-label-long { display: inline; }
+.lb-boost-placeholder .lb-label-short { display: none; }
+@media (max-width: 640px) {
+  .lb-boost-placeholder .lb-label-long { display: none; }
+  .lb-boost-placeholder .lb-label-short { display: inline; }
+}
+
+#lb-identity-slot {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+}
+.lb-identity-placeholder {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--cream);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 0.35rem 0.85rem;
+  border-radius: 6px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.lb-identity-placeholder:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.32);
+}
+.lb-identity-restoring {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(90deg,
+    rgba(255,255,255,0.05) 0%,
+    rgba(255,255,255,0.15) 50%,
+    rgba(255,255,255,0.05) 100%);
+  background-size: 200% 100%;
+  animation: lb-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes lb-skeleton-shimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+/* ── Per-note action bar (Reply / Repost / Like / Zap) ──────────── */
+.note-actions {
+  display: flex;
+  gap: 0.25rem;
+  margin-top: 0.65rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--border);
+  flex-wrap: wrap;
+}
+.note-actions button {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.84rem;
+  padding: 0.32rem 0.65rem;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  transition: background 0.15s, color 0.15s;
+}
+.note-actions button:hover {
+  background: rgba(247,147,26,0.1);
+  color: var(--orange);
+}
+.note-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.note-actions button:disabled:hover {
+  background: transparent;
+  color: var(--muted);
+}
+.note-actions .lb-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+.note-actions .like-btn[aria-pressed="true"],
+.note-actions .repost-btn[aria-pressed="true"] {
+  color: var(--orange);
+}
+.note-actions .like-btn[aria-pressed="true"] .lb-icon,
+.note-actions .repost-btn[aria-pressed="true"] .lb-icon {
+  color: var(--orange);
+}
+
+/* ── Inline reply composer ───────────────────────────────────────── */
+.reply-composer {
+  margin-top: 0.7rem;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.85rem;
+}
+.reply-composer textarea {
+  width: 100%;
+  min-height: 90px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.7rem;
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--text);
+  background: var(--cream);
+  box-sizing: border-box;
+}
+.reply-composer textarea:focus {
+  outline: none;
+  border-color: var(--orange);
+}
+.reply-composer .rc-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 0.6rem;
+}
+.reply-composer button {
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.88rem;
+  padding: 0.45rem 1rem;
+  border-radius: 5px;
+  transition: background 0.15s, color 0.15s;
+}
+.reply-composer .rc-cancel {
+  background: transparent;
+  color: var(--navy);
+  border: 1.5px solid var(--border);
+}
+.reply-composer .rc-cancel:hover { background: var(--border); }
+.reply-composer .rc-send {
+  background: var(--orange);
+  color: var(--white);
+}
+.reply-composer .rc-send:hover { background: var(--orange-d); }
+.reply-composer .rc-send:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ── Zap modal ──────────────────────────────────────────────────── */
+.zap-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  overflow-y: auto;
+}
+.zap-modal {
+  background: var(--white);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 460px;
+  padding: 1.5rem 1.6rem 1.6rem;
+  position: relative;
+  font-family: 'Source Serif 4', Georgia, serif;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.zap-modal h3 {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.35rem;
+  color: var(--navy);
+  margin: 0 0 0.85rem;
+}
+.zap-modal .zap-recipient {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+  font-size: 0.95rem;
+}
+.zap-modal .zap-recipient img {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--cream-d);
+}
+.zap-modal label {
+  display: block;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--navy);
+  margin-top: 0.85rem;
+  margin-bottom: 0.35rem;
+}
+.zap-modal .zap-amounts {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.4rem;
+}
+.zap-modal .zap-amounts button {
+  border: 1.5px solid var(--border);
+  background: var(--cream);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 0.4rem 0.85rem;
+  border-radius: 6px;
+  color: var(--navy);
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.zap-modal .zap-amounts button:hover {
+  border-color: var(--orange);
+  color: var(--orange);
+}
+.zap-modal .zap-amounts button.is-active {
+  background: var(--orange);
+  border-color: var(--orange);
+  color: var(--white);
+}
+.zap-modal input[type="number"], .zap-modal textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  font-size: 0.95rem;
+  background: var(--cream);
+  box-sizing: border-box;
+}
+.zap-modal input[type="number"]:focus, .zap-modal textarea:focus {
+  outline: none;
+  border-color: var(--orange);
+}
+.zap-modal textarea { min-height: 60px; resize: vertical; }
+.zap-modal .zap-submit {
+  width: 100%;
+  margin-top: 1.1rem;
+  background: var(--orange);
+  color: var(--white);
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  font-size: 1rem;
+  padding: 0.7rem 1rem;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.zap-modal .zap-submit:hover { background: var(--orange-d); }
+.zap-modal .zap-submit:disabled { opacity: 0.6; cursor: default; }
+.zap-modal .zap-close {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.7rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 1.4rem;
+  color: var(--muted);
+  padding: 0.25rem 0.5rem;
+  line-height: 1;
+}
+.zap-modal .zap-close:hover { color: var(--navy); }
+.zap-modal .zap-status {
+  margin-top: 0.7rem;
+  font-size: 0.88rem;
+  color: var(--muted);
+  min-height: 1.2em;
+}
+.zap-modal .zap-status.is-error { color: #b34a1d; }
+.zap-modal .zap-invoice {
+  margin-top: 1rem;
+  padding: 0.85rem;
+  background: var(--cream);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+.zap-modal .zap-invoice textarea {
+  font-family: monospace;
+  font-size: 0.78rem;
+  min-height: 110px;
+}
+.zap-modal .zap-invoice .zap-invoice-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+.zap-modal .zap-invoice button, .zap-modal .zap-invoice a {
+  border: 1.5px solid var(--navy);
+  background: transparent;
+  color: var(--navy);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 5px;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+.zap-modal .zap-invoice button:hover, .zap-modal .zap-invoice a:hover {
+  background: var(--navy);
+  color: var(--white);
+}
+
+/* ── Toast ──────────────────────────────────────────────────────── */
+.lb-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--navy);
+  color: var(--cream);
+  padding: 0.65rem 1.2rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+  z-index: 300;
+  opacity: 0;
+  transition: opacity 0.25s, transform 0.25s;
+  pointer-events: none;
+  max-width: 92vw;
+}
+.lb-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.lb-toast.is-error { background: #6b2418; }

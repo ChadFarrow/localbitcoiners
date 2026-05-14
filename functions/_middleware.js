@@ -527,6 +527,7 @@ function renderEpisodePage(ep) {
   </script>
 
   <link rel="stylesheet" href="/assets/css/boosts-thread.css" />
+  <link rel="stylesheet" href="/assets/css/boost-actions.css" />
   <link rel="stylesheet" href="/assets/css/episode.css" />
 </head>
 <body>
@@ -551,6 +552,25 @@ function renderEpisodePage(ep) {
         <li><a href="/#links">Links</a></li>
       </ul>
     </nav>
+    <div id="lb-boost-slot" aria-label="Boost the Show">
+      <button
+        type="button"
+        class="lb-boost-placeholder"
+        data-lb-boost-trigger="show"
+        aria-label="Boost the Show"
+      >
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path fill-rule="evenodd" d="M14.615 1.595a.75.75 0 0 1 .359.852L12.982 9.75h7.268a.75.75 0 0 1 .548 1.262l-10.5 11.25a.75.75 0 0 1-1.272-.71l1.992-7.302H3.75a.75.75 0 0 1-.548-1.262l10.5-11.25a.75.75 0 0 1 .913-.143Z" clip-rule="evenodd"/>
+        </svg>
+        <span class="lb-label-long">Boost the Show</span>
+        <span class="lb-label-short">Boost</span>
+      </button>
+    </div>
+    <div id="lb-identity-slot" aria-label="Account">
+      <!-- Static placeholder swapped out by IdentityWidget once the
+           login-widget bundle loads. Populated synchronously by the
+           inline script at the bottom of the page. -->
+    </div>
   </div>
 </header>
 
@@ -591,6 +611,50 @@ function renderEpisodePage(ep) {
 <footer class="ep-footer">
   <p>© Local Bitcoiners · <a href="/">localbitcoiners.com</a></p>
 </footer>
+
+<!-- Identity slot placeholder — populated synchronously so returning
+     visitors see a shimmer instead of an empty box while the widget
+     boots. Mirrors index.html / boosts.html. -->
+<script>
+(function () {
+  var slot = document.getElementById('lb-identity-slot');
+  if (!slot) return;
+  var hasSession = false;
+  try { hasSession = !!localStorage.getItem('lb_nostr_session'); } catch (e) {}
+  if (hasSession) {
+    slot.innerHTML = '<div class="lb-identity-restoring" aria-label="Loading account"></div>';
+  } else {
+    slot.innerHTML = '<button type="button" class="lb-identity-placeholder" aria-label="Sign in with Nostr">Sign in</button>';
+    var btn = slot.querySelector('button');
+    btn.addEventListener('click', function () {
+      if (window.LBLogin && typeof window.LBLogin.requestLogin === 'function') {
+        window.LBLogin.requestLogin();
+      }
+    });
+  }
+})();
+</script>
+
+<!-- Nav "Boost the Show" placeholder handler — replaced by the
+     IdentityWidget bundle once it loads; this is the fallback for the
+     brief window before that happens. -->
+<script>
+(function () {
+  var ph = document.querySelector('[data-lb-boost-trigger="show"]');
+  if (!ph) return;
+  ph.addEventListener('click', function () {
+    if (window.LBLogin && typeof window.LBLogin.openShowBoost === 'function') {
+      window.LBLogin.openShowBoost();
+    }
+  });
+})();
+</script>
+
+<!-- Login widget bundle. Eager-loaded so the nav identity widget +
+     boost-card action bar are responsive without a per-interaction
+     spinner. Returning visitors with a saved session sign back in
+     automatically as the bundle evaluates. -->
+<script src="/assets/widgets/login-widget.js" defer></script>
 
 <script src="/assets/js/episode-enhance.js" defer></script>
 <script type="module" src="/assets/js/ep-boosts.js"></script>

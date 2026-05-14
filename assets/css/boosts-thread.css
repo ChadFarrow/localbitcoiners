@@ -162,53 +162,8 @@
   font-style: normal;
 }
 
-/* ── Per-note action bar (Reply / Like / Repost / Zap) ──────────── */
-.note-actions {
-  display: flex;
-  gap: 0.25rem;
-  margin-top: 0.65rem;
-  padding-top: 0.5rem;
-  border-top: 1px dashed var(--border);
-  flex-wrap: wrap;
-}
-.note-actions button {
-  border: none;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.84rem;
-  padding: 0.32rem 0.65rem;
-  border-radius: 5px;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  transition: background 0.15s, color 0.15s;
-}
-.note-actions button:hover {
-  background: rgba(247,147,26,0.1);
-  color: var(--orange);
-}
-.note-actions button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.note-actions button:disabled:hover {
-  background: transparent;
-  color: var(--muted);
-}
-.note-actions .lb-icon {
-  font-size: 1rem;
-  line-height: 1;
-}
-.note-actions .like-btn[aria-pressed="true"],
-.note-actions .repost-btn[aria-pressed="true"] {
-  color: var(--orange);
-}
-.note-actions .like-btn[aria-pressed="true"] .lb-icon,
-.note-actions .repost-btn[aria-pressed="true"] .lb-icon {
-  color: var(--orange);
-}
+/* The per-card action bar (.note-actions) lives in boost-actions.css —
+   pages that load the mutation handlers also load its styles. */
 
 /* ── Note footer + reply tree ───────────────────────────────────── */
 .note-footer {
