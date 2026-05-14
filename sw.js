@@ -4,10 +4,13 @@
 //   episodes instantly; fresh feed loads in background for next visit)
 // - Widget bundles (/assets/widgets/*): stale-while-revalidate (serve
 //   cached immediately, refresh in background, next page picks up new code)
-// - Other same-origin static assets: cache-first
+// - Other same-origin static assets: stale-while-revalidate (serve cached
+//   instantly, revalidate in background — deploys propagate within one
+//   navigation without a VERSION bump, and a cached asset survives a
+//   transient network blip instead of failing the whole resource load)
 // - Cross-origin (fonts on first deploy, Nostr relays, third-party): pass through
 
-const VERSION = 'lb-v8';
+const VERSION = 'lb-v9';
 const STATIC_CACHE = `${VERSION}-static`;
 const HTML_CACHE = `${VERSION}-html`;
 const WIDGET_CACHE = `${VERSION}-widgets`;
@@ -16,6 +19,13 @@ const RSS_CACHE = `${VERSION}-rss`;
 // What we precache on SW install. Widget bundle deliberately excluded —
 // it's only needed when a user clicks Boost, not on every visit. Lazy
 // loading the bundle on first interaction keeps cold-load lighter.
+//
+// The /ep### page assets are precached too: they're not referenced by
+// the homepage, so without this they'd be uncached on a visitor's first
+// episode-page hit — and an uncached asset that hits a transient network
+// error has no fallback, which is what made episode pages intermittently
+// render unstyled / without their chart. data/sats.json is excluded
+// (large, changes daily — stale-while-revalidate handles it instead).
 const PRECACHE_URLS = [
   '/',
   '/index.html',
@@ -24,6 +34,15 @@ const PRECACHE_URLS = [
   '/assets/LocalBitcoiners.png',
   '/assets/favicon.png',
   '/assets/LocalBitcoiners_banner_YT.jpg',
+  '/assets/css/episode.css',
+  '/assets/css/boosts-thread.css',
+  '/assets/css/boost-actions.css',
+  '/assets/js/episode-enhance.js',
+  '/assets/js/ep-sats.js',
+  '/assets/js/ep-boosts.js',
+  '/assets/js/boosts-thread.js',
+  '/assets/js/boost-actions.js',
+  '/assets/js/nav.js',
 ];
 
 self.addEventListener('install', (event) => {
@@ -124,16 +143,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request).then((response) => {
-        if (response.ok && response.type === 'basic') {
-          const copy = response.clone();
-          caches.open(STATIC_CACHE).then((cache) => cache.put(request, copy));
-        }
-        return response;
-      });
-    })
-  );
+  // Other same-origin static assets (CSS, JS, data, images): serve the
+  // cached copy instantly and revalidate in the background. A cached
+  // asset stays usable through a transient network failure, and a deploy
+  // is picked up on the next navigation without needing a VERSION bump.
+  event.respondWith(staleWhileRevalidate(request, STATIC_CACHE));
 });
