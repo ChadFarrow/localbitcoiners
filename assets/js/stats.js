@@ -1,15 +1,19 @@
-/* Stats page — podcast-wide sats-over-time chart.
+/* Stats page — podcast-wide charts, all fed by /data/sats.json (plus
+ * the episode feed /api/rss for publish dates).
  *
- * Fetches the full sats ledger (/data/sats.json) and the episode feed
- * (/api/rss), then renders an inline-SVG line chart of sats received
- * across the show's entire history. A radio toggle switches between a
- * cumulative running total and per-day totals; thin vertical markers
- * show when each episode was published (hover for the title + date).
+ * 1. Sats over time — line chart, cumulative / daily toggle, with
+ *    episode-release markers.
+ * 2. Episode leaderboard — top 10 episodes by total sats or by unique
+ *    supporters.
+ * 3. Supporter leaderboard — top 10 identities by total sats or by
+ *    episodes supported, plus an always-on bucket aggregating every
+ *    anonymous payment.
  *
- * Counts EVERY row in the ledger — episode boosts, show-level boosts,
- * lb_donations, streams, all of it — using total_sats (what listeners
- * sent, not the show's split). Zero dependencies; fails silently to an
- * error message if the data can't be loaded.
+ * Everything counts total_sats (what listeners sent, not the show's
+ * split) across every row — episode boosts, show-level boosts,
+ * lb_donations, streams. npubs in the supporter leaderboard resolve to
+ * display names via episode-enhance.js's shared relay helper. Zero
+ * dependencies; fails silently to an error message on load failure.
  */
 (function () {
   'use strict';
@@ -20,11 +24,20 @@
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+  // Podcast hosts — excluded from the supporter leaderboard (we don't
+  // rank ourselves). They appear in the ledger only under these npubs.
+  var HOST_NPUBS = {
+    'npub1xgyjasdztryl9sg6nfdm2wcj0j3qjs03sq7a0an32pg0lr5l6yaqxhgu7s': true, // Reed
+    'npub1f5pre6wl6ad87vr4hr5wppqq30sh58m4p33mthnjreh03qadcajs7gwt3z': true, // Rev Hodl
+  };
+
   var canvas = document.querySelector('[data-stats-canvas]');
   var subEl = document.querySelector('[data-stats-sub]');
   var boardCanvas = document.querySelector('[data-stats-leaderboard]');
   var boardSubEl = document.querySelector('[data-board-sub]');
-  if (!canvas && !boardCanvas) return;
+  var peopleCanvas = document.querySelector('[data-stats-people]');
+  var peopleSubEl = document.querySelector('[data-people-sub]');
+  if (!canvas && !boardCanvas && !peopleCanvas) return;
 
   Promise.all([
     fetch(SATS_URL).then(function (r) { return r.ok ? r.json() : null; })
@@ -42,12 +55,14 @@
     if (!rows.length) { showError(); return; }
     render(rows, rssXml ? parseEpisodes(rssXml) : []);
     renderLeaderboard(rows);
+    renderIdentityBoard(rows);
   });
 
   function showError() {
     var msg = '<p class="stats-error">Couldn\'t load sats data right now — try again later.</p>';
     if (canvas) canvas.innerHTML = msg;
     if (boardCanvas) boardCanvas.innerHTML = msg;
+    if (peopleCanvas) peopleCanvas.innerHTML = msg;
   }
 
   // ── RSS parsing — episode number + publish date for the markers ────
@@ -290,7 +305,12 @@
       var sorted = episodes.slice()
         .sort(function (a, b) { return b[metric] - a[metric]; })
         .slice(0, 10);
-      boardCanvas.innerHTML = buildBarSvg(sorted, metric);
+      var items = sorted.map(function (e) {
+        return { label: 'Ep ' + e.num, value: e[metric] };
+      });
+      boardCanvas.innerHTML = buildBarSvg(items, metric === 'sats'
+        ? 'Episodes ranked by total sats received'
+        : 'Episodes ranked by unique supporters');
       if (boardSubEl) {
         boardSubEl.textContent = metric === 'sats'
           ? 'Top ' + sorted.length + ' episodes by total sats received (boosts + streams)'
@@ -307,36 +327,137 @@
     }
   }
 
-  // Horizontal bar chart: one bar per episode, sorted longest-first.
-  function buildBarSvg(items, metric) {
+  // Horizontal bar chart. `items` is a pre-sorted [{ label, value,
+  // isAnon? }] array, drawn top to bottom; the left margin auto-fits the
+  // longest label. Shared by the episode + supporter leaderboards.
+  function buildBarSvg(items, ariaLabel) {
     var W = 720;
-    var rowH = 30, barH = 18, mT = 14, mB = 14, mL = 58, mR = 88;
+    var rowH = 30, barH = 18, mT = 14, mB = 14, mR = 92;
+    var longest = 0;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].label.length > longest) longest = items[i].label.length;
+    }
+    var mL = Math.min(Math.max(longest * 7 + 16, 58), 180);
     var H = mT + mB + items.length * rowH;
     var tw = W - mL - mR;
 
     var maxVal = 0;
-    for (var i = 0; i < items.length; i++) {
-      if (items[i][metric] > maxVal) maxVal = items[i][metric];
+    for (var j = 0; j < items.length; j++) {
+      if (items[j].value > maxVal) maxVal = items[j].value;
     }
     if (maxVal <= 0) maxVal = 1;
 
     var parts = [];
-    for (var j = 0; j < items.length; j++) {
-      var it = items[j];
-      var val = it[metric];
-      var cy = mT + j * rowH + rowH / 2;
-      var bw = Math.max((val / maxVal) * tw, 2);
+    for (var k = 0; k < items.length; k++) {
+      var it = items[k];
+      var cy = mT + k * rowH + rowH / 2;
+      var bw = Math.max((it.value / maxVal) * tw, 2);
+      var cls = it.isAnon ? 'stats-bar stats-bar-anon' : 'stats-bar';
       parts.push('<text class="stats-bar-label" x="' + (mL - 8) + '" y="' +
-        (cy + 4) + '">Ep ' + it.num + '</text>');
-      parts.push('<rect class="stats-bar" x="' + mL + '" y="' + (cy - barH / 2) +
+        (cy + 4) + '">' + svgEsc(it.label) + '</text>');
+      parts.push('<rect class="' + cls + '" x="' + mL + '" y="' + (cy - barH / 2) +
         '" width="' + bw + '" height="' + barH + '" rx="3"/>');
       parts.push('<text class="stats-bar-value" x="' + (mL + bw + 8) + '" y="' +
-        (cy + 4) + '">' + fmtSats(val) + '</text>');
+        (cy + 4) + '">' + fmtSats(it.value) + '</text>');
     }
     return '<svg viewBox="0 0 ' + W + ' ' + H + '" class="stats-bar-svg" ' +
-      'role="img" preserveAspectRatio="xMidYMid meet" aria-label="Episodes ranked by ' +
-      (metric === 'sats' ? 'total sats received' : 'unique supporters') + '">' +
-      parts.join('') + '</svg>';
+      'role="img" preserveAspectRatio="xMidYMid meet" aria-label="' +
+      svgEsc(ariaLabel) + '">' + parts.join('') + '</svg>';
+  }
+
+  // ── Supporter leaderboard — horizontal bar chart by identity ───────
+  function renderIdentityBoard(rows) {
+    if (!peopleCanvas) return;
+
+    // Group by identity: keyed by npub, else display name. Rows with
+    // neither (truly anonymous) all collapse into one shared bucket,
+    // pinned to the bottom of the chart regardless of rank.
+    var ANON = '__anon__';
+    var byId = Object.create(null);
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      if (row.sender_npub && HOST_NPUBS[row.sender_npub]) continue;  // hosts don't rank
+      var npub = row.sender_npub || '';
+      var key = npub || row.sender_name || ANON;
+      var id = byId[key] || (byId[key] = {
+        npub: npub,
+        isAnon: key === ANON,
+        label: key === ANON ? 'Anonymous' : (row.sender_name || shortNpub(npub)),
+        sats: 0,
+        episodes: Object.create(null),
+      });
+      id.sats += row.total_sats;
+      if (row.episode_num != null) {
+        var num = parseInt(row.episode_num, 10);
+        if (isFinite(num) && num > 0) id.episodes[num] = true;
+      }
+    }
+
+    var anon = null;
+    var people = [];
+    for (var k in byId) {
+      var rec = byId[k];
+      rec.episodeCount = Object.keys(rec.episodes).length;
+      if (rec.isAnon) anon = rec;
+      else people.push(rec);
+    }
+    if (!people.length && !anon) {
+      peopleCanvas.innerHTML = '<p class="stats-error">No supporter data yet.</p>';
+      return;
+    }
+
+    var fieldOf = { sats: 'sats', episodes: 'episodeCount' };
+
+    function draw(metric) {
+      var field = fieldOf[metric] || 'sats';
+      var sorted = people.slice()
+        .sort(function (a, b) { return b[field] - a[field]; })
+        .slice(0, 10);
+      // The anonymous bucket is always shown, pinned to the bottom.
+      if (anon) sorted = sorted.concat([anon]);
+      var items = sorted.map(function (p) {
+        return { label: truncate(p.label, 22), value: p[field], isAnon: p.isAnon };
+      });
+      peopleCanvas.innerHTML = buildBarSvg(items, metric === 'sats'
+        ? 'Supporters ranked by total sats sent'
+        : 'Supporters ranked by episodes supported');
+      if (peopleSubEl) {
+        peopleSubEl.textContent = (metric === 'sats'
+          ? 'Top 10 supporters by total sats sent'
+          : 'Top 10 supporters by episodes supported') +
+          ' — plus every anonymous payment, bucketed at the bottom';
+      }
+    }
+    draw('sats');
+
+    var radios = document.querySelectorAll('input[name="stats-people-view"]');
+    for (var r = 0; r < radios.length; r++) {
+      radios[r].addEventListener('change', function (e) {
+        if (e.target.checked) draw(e.target.value);
+      });
+    }
+
+    // Upgrade npub labels to display names via episode-enhance.js's
+    // shared relay helper, then re-draw so the current metric picks
+    // them up. Degrades silently to the truncated-npub fallback.
+    var npubs = [];
+    for (var p = 0; p < people.length; p++) {
+      if (people[p].npub) npubs.push(people[p].npub);
+    }
+    if (npubs.length && window.LBEpisodeEnhance &&
+        typeof window.LBEpisodeEnhance.fetchProfilesByNpub === 'function') {
+      window.LBEpisodeEnhance.fetchProfilesByNpub(npubs).then(function (profiles) {
+        var changed = false;
+        for (var q = 0; q < people.length; q++) {
+          var prof = people[q].npub && profiles[people[q].npub];
+          if (prof && prof.name) { people[q].label = prof.name; changed = true; }
+        }
+        if (changed) {
+          var checked = document.querySelector('input[name="stats-people-view"]:checked');
+          draw(checked ? checked.value : 'sats');
+        }
+      }).catch(function () {});
+    }
   }
 
   // ── Helpers ────────────────────────────────────────────────────────
@@ -348,6 +469,23 @@
     } catch (e) {
       return new Date(ms).toISOString().slice(0, 10);
     }
+  }
+
+  function shortNpub(npub) {
+    return npub.length > 20 ? npub.slice(0, 12) + '…' + npub.slice(-6) : npub;
+  }
+
+  function truncate(s, n) {
+    s = String(s);
+    return s.length > n ? s.slice(0, n - 1).replace(/\s+$/, '') + '…' : s;
+  }
+
+  function svgEsc(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
   // Round up to a clean axis bound (1/2/5 * 10^n).

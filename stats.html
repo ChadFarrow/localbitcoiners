@@ -352,10 +352,11 @@
     /* ── Episode leaderboard (horizontal bars) ── */
     .stats-bar-svg { width: 100%; height: auto; display: block; }
     .stats-bar { fill: var(--orange); }
+    .stats-bar-anon { fill: var(--muted); }
     .stats-bar-label {
       fill: var(--navy);
       font-family: 'Source Serif 4', Georgia, serif;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 700;
       text-anchor: end;
     }
@@ -493,6 +494,28 @@
   </div>
 </section>
 
+<!-- ══════════════════════════════ SUPPORTER LEADERBOARD ══════════════════════════════ -->
+<section class="section-wide">
+  <h2 class="stats-chart-heading">Supporter Leaderboard</h2>
+  <p class="stats-chart-sub" data-people-sub>Loading…</p>
+
+  <div class="stats-chart-controls" role="radiogroup" aria-label="Supporter metric">
+    <label class="stats-chart-opt">
+      <input type="radio" name="stats-people-view" value="sats" checked /> Total Sats
+    </label>
+    <label class="stats-chart-opt">
+      <input type="radio" name="stats-people-view" value="episodes" /> Episodes Supported
+    </label>
+  </div>
+
+  <div class="stats-chart-canvas" data-stats-people>
+    <div class="stats-loading">
+      <div class="loading-spinner"></div><br />
+      Loading supporter stats…
+    </div>
+  </div>
+</section>
+
 <!-- ══════════════════════════════ FOOTER ══════════════════════════════ -->
 <footer>
   <p>© 2026 Local Bitcoiners Podcast &nbsp;·&nbsp; <a href="mailto:localbitcoiners@gmail.com">localbitcoiners@gmail.com</a></p>
@@ -550,6 +573,9 @@
 <!-- PWA install affordance -->
 <script src="assets/widgets/pwa-install.js" defer></script>
 <script src="/assets/js/nav.js" defer></script>
+<!-- episode-enhance.js exposes window.LBEpisodeEnhance.fetchProfilesByNpub,
+     which stats.js uses to resolve npub labels in the supporter board. -->
+<script src="/assets/js/episode-enhance.js" defer></script>
 <script src="/assets/js/stats.js" defer></script>
 </body>
 </html>
