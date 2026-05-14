@@ -254,6 +254,36 @@ function htmlEscape(s) {
     .replace(/'/g, "&#39;");
 }
 
+// Turn bare http(s) URLs in plain text into clickable links. Input is
+// plain text (stripHtml already ran on shownotes), so every segment is
+// escaped — URL segments become anchors, the rest stays text. Trailing
+// sentence punctuation is pulled back out of the match so "see x.com."
+// doesn't link the period. Non-http(s) URLs fall back to plain text.
+function linkifyText(text) {
+  const urlRe = /https?:\/\/[^\s<]+/g;
+  let out = "";
+  let last = 0;
+  let m;
+  while ((m = urlRe.exec(text)) !== null) {
+    out += htmlEscape(text.slice(last, m.index));
+    let url = m[0];
+    let trail = "";
+    const trailMatch = url.match(/[.,;:!?]+$/);
+    if (trailMatch) {
+      trail = trailMatch[0];
+      url = url.slice(0, -trail.length);
+    }
+    const safe = safeHttpUrl(url);
+    out += safe
+      ? `<a href="${htmlEscape(safe)}" target="_blank" rel="noopener noreferrer">${htmlEscape(url)}</a>`
+      : htmlEscape(url);
+    out += htmlEscape(trail);
+    last = m.index + m[0].length;
+  }
+  out += htmlEscape(text.slice(last));
+  return out;
+}
+
 // Guests are encoded in the shownotes as `[guests: npub1abc..., npub1def...]`.
 // Same convention the boost bot uses for routing per-episode value splits.
 // Case-insensitive on the prefix; comma-separated; only npub1 values pass.
@@ -726,7 +756,7 @@ function renderPeopleGroup(label, people) {
 function renderShownotesDisclosure(paragraphs) {
   if (paragraphs.length === 0) return "";
   const body = paragraphs
-    .map((p) => `<p>${htmlEscape(p)}</p>`)
+    .map((p) => `<p>${linkifyText(p)}</p>`)
     .join("\n        ");
   return `<details class="ep-shownotes">
       <summary class="ep-shownotes-summary">
