@@ -630,7 +630,9 @@ async function fetchCalendarEventsFromRelays(coords, relays) {
   return out
 }
 
-// ── Direct-relay fallback (untrusted source — verify everything) ─────
+// ── Direct-relay fetch (untrusted source — verify everything) ────────
+// Runs alongside Primal, not just as a fallback: relays are the
+// completeness backstop for the note set (see fetchBoostThread).
 function eventReferencesRoot(ev, rootId) {
   if (!Array.isArray(ev?.tags)) return false
   for (const t of ev.tags) {
@@ -639,7 +641,7 @@ function eventReferencesRoot(ev, rootId) {
   return false
 }
 
-async function fetchThreadFromRelays(rootId, relays) {
+async function fetchThreadNotesFromRelays(rootId, relays) {
   const pool = new SimplePool()
   try {
     const [root, replies] = await Promise.all([
@@ -654,7 +656,19 @@ async function fetchThreadFromRelays(rootId, relays) {
       if (!verifyEvent(ev)) continue
       notes.push(ev)
     }
-    const pubkeys = [...new Set(notes.map(n => n.pubkey))]
+    return notes
+  } finally {
+    pool.close(relays)
+  }
+}
+
+// Author profiles normally come from Primal's thread_view response; this
+// only runs when Primal was unreachable, so cards still get display
+// names + avatars instead of bare npubs.
+async function fetchProfilesFromRelays(pubkeys, relays) {
+  if (!pubkeys.length) return new Map()
+  const pool = new SimplePool()
+  try {
     const profiles = new Map()
     await Promise.all(pubkeys.map(async (pk) => {
       const ev = await pool.get(relays, { kinds: [0], authors: [pk] }).catch(() => null)
@@ -662,7 +676,7 @@ async function fetchThreadFromRelays(rootId, relays) {
         profiles.set(pk, parseProfileEvent(ev))
       }
     }))
-    return { notes, profiles }
+    return profiles
   } finally {
     pool.close(relays)
   }
@@ -817,30 +831,43 @@ export async function fetchBoostThread({ rootNevent = ROOT_NEVENT } = {}) {
     return { rootEvent: null, childrenOf: new Map(), totalReplies: 0, error: 'invalid-root' }
   }
 
-  let result = null
-  try {
-    result = await fetchThreadFromPrimal(rootId)
-  } catch (e) {
-    console.warn('[boosts-thread] Primal failed, falling back to relays', e)
-  }
+  // Fetch from Primal and the relays in parallel, then union the note
+  // sets by id. Primal's thread_view is fast and carries kind-0 profile
+  // data, but a connection that closes mid-stream silently yields a
+  // PARTIAL thread — and the old code accepted that as complete so long
+  // as the root event was present. Relays are the completeness backstop;
+  // merging both is what keeps low-frequency notes (e.g. the three ep-1
+  // boosts among 120+) from intermittently vanishing.
+  const relays = Array.from(new Set([...STATIC_RELAYS, ...hintRelays]))
+  const [primal, relayNotes] = await Promise.all([
+    fetchThreadFromPrimal(rootId).catch((e) => {
+      console.warn('[boosts-thread] Primal fetch failed', e)
+      return { notes: [], profiles: new Map() }
+    }),
+    fetchThreadNotesFromRelays(rootId, relays).catch((e) => {
+      console.warn('[boosts-thread] relay fetch failed', e)
+      return []
+    }),
+  ])
 
-  let { notes, profiles } = result || { notes: [], profiles: new Map() }
-  let { root, childrenOf } = buildThread(rootId, notes)
+  const notesById = new Map()
+  for (const ev of relayNotes) if (ev?.id) notesById.set(ev.id, ev)
+  for (const ev of primal.notes) if (ev?.id) notesById.set(ev.id, ev)
+  const notes = [...notesById.values()]
+  let profiles = primal.profiles
 
-  if (!root) {
-    const relays = Array.from(new Set([...STATIC_RELAYS, ...hintRelays]))
-    try {
-      const fallback = await fetchThreadFromRelays(rootId, relays)
-      notes = fallback.notes
-      profiles = fallback.profiles
-      ;({ root, childrenOf } = buildThread(rootId, notes))
-    } catch (e) {
-      console.error('[boosts-thread] relay fallback failed', e)
-    }
-  }
-
+  const { root, childrenOf } = buildThread(rootId, notes)
   if (!root) {
     return { rootEvent: null, childrenOf: new Map(), totalReplies: 0, error: 'no-root' }
+  }
+
+  // If Primal was unreachable we have notes (from relays) but no author
+  // profiles — back-fill them from relays so cards aren't all bare npubs.
+  if (notes.length && profiles.size === 0) {
+    profiles = await fetchProfilesFromRelays(
+      [...new Set(notes.map((n) => n.pubkey))],
+      relays,
+    ).catch(() => new Map())
   }
 
   for (const [pk, p] of profiles) setCachedProfile(pk, p)
