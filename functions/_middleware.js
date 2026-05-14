@@ -575,9 +575,9 @@ function renderEpisodePage(ep) {
     <a class="nav-site-name" href="/">Local Bitcoiners</a>
     <nav aria-label="Main navigation">
       <ul>
-        <li><a href="/#episodes">Episodes</a></li>
         <li><a href="/boosts.html">Boosts</a></li>
         <li><a href="/newevent.html">Submit Meetup</a></li>
+        <li><a href="/stats.html">Stats</a></li>
         <li>
           <details class="nav-more">
             <summary>More <span class="caret" aria-hidden="true">▾</span></summary>

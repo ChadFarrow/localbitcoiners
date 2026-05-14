@@ -4,9 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-  <!-- Pragmatic baseline CSP. See index.html for the rationale; both
-       pages share the same policy intentionally so future tightening
-       happens in lockstep. -->
+  <!-- Pragmatic baseline CSP — shared with index.html / boosts.html so
+       future tightening happens in lockstep. -->
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'self';
     script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com;
@@ -20,9 +19,9 @@
     object-src 'none';
   " />
 
-  <title>Podcast Boosts — Local Bitcoiners</title>
-  <meta name="description" content="The Local Bitcoiners boost wall — read the latest boost messages and zaps from listeners on Nostr." />
-  <link rel="canonical" href="https://localbitcoiners.com/boosts.html" />
+  <title>Podcast Stats — Local Bitcoiners</title>
+  <meta name="description" content="Podcast-wide stats for Local Bitcoiners — sats received over time across every episode and show-level boost." />
+  <link rel="canonical" href="https://localbitcoiners.com/stats.html" />
   <link rel="icon" type="image/png" href="assets/favicon.png" />
 
   <!-- PWA -->
@@ -35,19 +34,18 @@
 
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
-  <meta property="og:url" content="https://localbitcoiners.com/boosts.html" />
-  <meta property="og:title" content="Podcast Boosts — Local Bitcoiners" />
-  <meta property="og:description" content="The Local Bitcoiners boost wall — read the latest boost messages and zaps from listeners on Nostr." />
+  <meta property="og:url" content="https://localbitcoiners.com/stats.html" />
+  <meta property="og:title" content="Podcast Stats — Local Bitcoiners" />
+  <meta property="og:description" content="Sats received over time across every Local Bitcoiners episode and show-level boost." />
   <meta property="og:site_name" content="Local Bitcoiners" />
   <meta property="og:image" content="https://localbitcoiners.com/assets/LocalBitcoiners_banner_YT.jpg" />
   <meta name="twitter:card" content="summary_large_image" />
 
-  <!-- Self-hosted fonts. Variable WOFF2s — one file per family per
-       style covers all needed weights. -->
+  <!-- Self-hosted fonts. -->
   <link rel="preload" as="font" type="font/woff2" href="assets/fonts/source-serif-4.woff2" crossorigin />
   <link rel="preload" as="font" type="font/woff2" href="assets/fonts/playfair-display.woff2" crossorigin />
 
-  <link rel="stylesheet" href="/assets/css/boosts-thread.css" />
+  <!-- Nav identity-slot + boost-slot styling lives here. -->
   <link rel="stylesheet" href="/assets/css/boost-actions.css" />
 
   <style>
@@ -57,13 +55,6 @@
       font-weight: 400 700;
       font-display: swap;
       src: url('assets/fonts/playfair-display.woff2') format('woff2');
-    }
-    @font-face {
-      font-family: 'Playfair Display';
-      font-style: italic;
-      font-weight: 400;
-      font-display: swap;
-      src: url('assets/fonts/playfair-display-italic.woff2') format('woff2');
     }
     @font-face {
       font-family: 'Source Serif 4';
@@ -112,7 +103,7 @@
 
     img { display: block; max-width: 100%; }
 
-    /* ── Nav (mirrors index.html) ── */
+    /* ── Nav (mirrors index.html / boosts.html) ── */
     #top-nav {
       position: sticky;
       top: 0;
@@ -223,7 +214,6 @@
       background: rgba(247,147,26,0.18);
       color: var(--orange);
     }
-    /* Nav identity-slot + boost-slot styles live in boost-actions.css. */
 
     /* ── Page header ── */
     .page-header {
@@ -246,24 +236,18 @@
       color: var(--cream);
       font-style: italic;
     }
-    .page-header-note {
-      margin: 0.5rem auto 0;
-      font-size: 0.8rem;
-      color: var(--cream);
-      opacity: 0.75;
-    }
 
     /* ── Section wrapper ── */
     .section-wide {
-      max-width: 860px;
+      max-width: 920px;
       margin: 0 auto;
       padding: 3rem 1.5rem;
     }
 
-    /* ── Loading / error ── */
-    #boosts-loading {
+    /* ── Loading / spinner ── */
+    .stats-loading {
       text-align: center;
-      padding: 3rem 0;
+      padding: 2.5rem 0;
       font-style: italic;
       color: var(--muted);
     }
@@ -277,22 +261,99 @@
       margin-bottom: 1rem;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    .stats-error {
+      text-align: center;
+      padding: 2.5rem 0;
+      font-style: italic;
+      color: var(--muted);
+    }
 
-    #boosts-error {
-      display: none;
+    /* ── Sats-over-time chart ── */
+    .stats-chart-heading {
+      font-family: 'Playfair Display', Georgia, serif;
+      font-size: clamp(1.4rem, 3vw, 1.9rem);
+      font-weight: 700;
+      color: var(--navy);
+      display: inline-block;
+      border-bottom: 3px solid var(--orange);
+      padding-bottom: 0.35rem;
+    }
+    .stats-chart-sub {
+      margin-top: 0.6rem;
+      color: var(--muted);
+      font-style: italic;
+      font-size: 0.95rem;
+    }
+    .stats-chart-controls {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 1.1rem;
+    }
+    .stats-chart-opt {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--navy);
       background: var(--white);
       border: 1px solid var(--border);
-      border-left: 4px solid var(--orange);
-      border-radius: 6px;
-      padding: 1.5rem 2rem;
-      margin-top: 2rem;
+      border-radius: 999px;
+      padding: 0.35rem 0.9rem;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
     }
-    #boosts-error a { font-weight: 600; color: var(--orange); }
-
-    /* Shared note-card / embed / action-bar styles live in
-       /assets/css/boosts-thread.css (linked in <head>). */
-
-    /* Reply composer, zap modal, and toast styles live in boost-actions.css. */
+    .stats-chart-opt:hover { border-color: var(--orange); }
+    .stats-chart-opt input { accent-color: var(--orange); margin: 0; cursor: pointer; }
+    .stats-chart-canvas {
+      margin-top: 1.1rem;
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem;
+      min-height: 200px;
+    }
+    .stats-chart-svg { width: 100%; height: auto; display: block; }
+    .stats-chart-grid { stroke: var(--border); stroke-width: 1; }
+    .stats-chart-ylabel,
+    .stats-chart-xlabel {
+      fill: var(--muted);
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-size: 12px;
+    }
+    .stats-chart-ylabel { text-anchor: end; }
+    .stats-chart-xlabel { text-anchor: middle; }
+    .stats-chart-area { fill: rgba(247,147,26,0.12); stroke: none; }
+    .stats-chart-line {
+      fill: none;
+      stroke: var(--orange);
+      stroke-width: 2;
+      stroke-linejoin: round;
+      stroke-linecap: round;
+    }
+    .stats-chart-epline {
+      stroke: var(--navy-l);
+      stroke-width: 2;
+      stroke-dasharray: 5 4;
+    }
+    .stats-chart-eplabel {
+      fill: var(--navy-l);
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-size: 11px;
+      font-weight: 700;
+      text-anchor: middle;
+    }
+    .stats-chart-dot {
+      fill: var(--orange-d);
+      stroke: var(--white);
+      stroke-width: 1.5;
+    }
+    .stats-chart-legend {
+      margin-top: 0.7rem;
+      font-size: 0.82rem;
+      color: var(--muted);
+      font-style: italic;
+    }
 
     /* ── Footer (mirrors index.html) ── */
     footer {
@@ -316,6 +377,7 @@
     }
     @media (max-width: 600px) {
       .section-wide { padding: 2rem 1rem; }
+      .stats-chart-canvas { padding: 0.6rem; }
     }
     @media (max-width: 420px) {
       .nav-logo { width: 36px; height: 36px; }
@@ -334,9 +396,9 @@
     <a class="nav-site-name" href="/">Local Bitcoiners</a>
     <nav aria-label="Main navigation">
       <ul>
-        <li><a href="/boosts.html" class="active">Boosts</a></li>
+        <li><a href="/boosts.html">Boosts</a></li>
         <li><a href="/newevent.html">Submit Meetup</a></li>
-        <li><a href="/stats.html">Stats</a></li>
+        <li><a href="/stats.html" class="active">Stats</a></li>
         <li>
           <details class="nav-more">
             <summary>More <span class="caret" aria-hidden="true">▾</span></summary>
@@ -364,32 +426,39 @@
     </div>
     <div id="lb-identity-slot" aria-label="Account">
       <!-- Static placeholder swapped out by IdentityWidget once the
-           bundle loads. Picks shimmer vs sign-in based on whether a
-           saved session exists; populated by inline script below. -->
+           bundle loads; populated by the inline script below. -->
     </div>
   </div>
 </header>
 
 <!-- ══════════════════════════════ PAGE HEADER ══════════════════════════════ -->
 <section class="page-header">
-  <h1>Podcast Boosts</h1>
-  <p class="page-header-note">This page updates every 10 minutes</p>
+  <h1>Podcast Stats</h1>
+  <p>A look at the numbers behind the show — powered by every boost, stream, and donation listeners have sent.</p>
 </section>
 
-<!-- ══════════════════════════════ FEED ══════════════════════════════ -->
+<!-- ══════════════════════════════ SATS OVER TIME ══════════════════════════════ -->
 <section class="section-wide">
-  <div id="boosts-loading">
-    <div class="loading-spinner"></div><br />
-    Loading boosts from Nostr…
+  <h2 class="stats-chart-heading">Sats Over Time</h2>
+  <p class="stats-chart-sub" data-stats-sub>Loading…</p>
+
+  <div class="stats-chart-controls" role="radiogroup" aria-label="Chart view">
+    <label class="stats-chart-opt">
+      <input type="radio" name="stats-chart-view" value="cumulative" checked /> Cumulative
+    </label>
+    <label class="stats-chart-opt">
+      <input type="radio" name="stats-chart-view" value="daily" /> Daily
+    </label>
   </div>
 
-  <div id="boosts-error">
-    <p>Couldn't load boosts right now. View the thread directly on
-      <a id="njump-link" href="https://njump.me/" target="_blank" rel="noopener noreferrer">njump.me →</a>
-    </p>
+  <div class="stats-chart-canvas" data-stats-canvas>
+    <div class="stats-loading">
+      <div class="loading-spinner"></div><br />
+      Loading sats data…
+    </div>
   </div>
 
-  <div id="boosts-content"></div>
+  <p class="stats-chart-legend">Dashed vertical lines mark when each episode was released.</p>
 </section>
 
 <!-- ══════════════════════════════ FOOTER ══════════════════════════════ -->
@@ -397,100 +466,9 @@
   <p>© 2026 Local Bitcoiners Podcast &nbsp;·&nbsp; <a href="mailto:localbitcoiners@gmail.com">localbitcoiners@gmail.com</a></p>
 </footer>
 
-<!-- ══════════════════════════════ BOOSTS FEED (Nostr) ══════════════════════════════ -->
-<script type="module">
-  // Read-only thread renderer (Primal fetch, profile/embed caches,
-  // <note-card> + reply-tree DOM) lives in /assets/js/boosts-thread.js.
-  // Mutation handlers (action bar, reply composer, like/repost/zap,
-  // login hydration, toast) live in /assets/js/boost-actions.js.
-  // This page just fetches the thread once, hands state + repaint to
-  // boost-actions, and renders the full mega-thread.
-  import {
-    ROOT_NEVENT,
-    fetchBoostThread,
-    renderRepliesTree,
-    countDescendants,
-  } from '/assets/js/boosts-thread.js'
-  import { configureBoostActions } from '/assets/js/boost-actions.js'
-
-  // ── Main load ──────────────────────────────────────────────────────
-  const $loading = document.getElementById('boosts-loading')
-  const $error   = document.getElementById('boosts-error')
-  const $njump   = document.getElementById('njump-link')
-  const $content = document.getElementById('boosts-content')
-
-  $njump.href = `https://njump.me/${ROOT_NEVENT}`
-
-  function showError() {
-    $loading.style.display = 'none'
-    $error.style.display = 'block'
-  }
-
-  function paint(root, childrenOf, totalReplies) {
-    $loading.style.display = 'none'
-    $content.innerHTML = ''
-
-    const repliesHeading = document.createElement('h2')
-    repliesHeading.className = 'replies-heading'
-    repliesHeading.textContent = totalReplies
-      ? `${totalReplies} ${totalReplies === 1 ? 'Boost' : 'Boosts'}`
-      : 'Boosts'
-    $content.appendChild(repliesHeading)
-
-    const directReplies = childrenOf.get(root.id) || []
-    if (!directReplies.length) {
-      const empty = document.createElement('p')
-      empty.className = 'replies-empty'
-      empty.textContent = 'No boosts yet — be the first to reply on Nostr.'
-      $content.appendChild(empty)
-    } else {
-      renderRepliesTree(root.id, childrenOf, $content)
-    }
-  }
-
-  // ── Thread state ────────────────────────────────────────────────────
-  // Held by the page so the rerender function below can re-paint the
-  // tree after boost-actions mutates it (optimistic reply insert, etc.).
-  const state = {
-    rootEvent: null,
-    childrenOf: new Map(),
-  }
-
-  function rerenderBoosts() {
-    if (!state.rootEvent) return
-    const total = countDescendants(state.rootEvent.id, state.childrenOf)
-    paint(state.rootEvent, state.childrenOf, total)
-  }
-
-  async function init() {
-    // fetchBoostThread owns the Primal-first + relay-fallback fetch, the
-    // mention/quote/calendar resolution, and cache seeding.
-    const { rootEvent, childrenOf, totalReplies, error } = await fetchBoostThread()
-    if (error || !rootEvent) {
-      showError()
-      return
-    }
-    state.rootEvent  = rootEvent
-    state.childrenOf = childrenOf
-    // Wire boost-actions: shares the thread state + this page's
-    // repaint, registers the action bar with the renderer, kicks off
-    // login-state hydration.
-    configureBoostActions({ rootEvent, childrenOf, rerender: rerenderBoosts })
-    paint(rootEvent, childrenOf, totalReplies)
-  }
-
-  init().catch((err) => {
-    console.error('[boosts] init failed', err)
-    showError()
-  })
-</script>
-
-<!-- Identity slot placeholder. Populated synchronously on page load so
-     returning users see a shimmering circle until the widget script
-     replaces it with their avatar. New users get a static "Sign in"
-     pill that opens the login modal once the widget script finishes
-     loading. The widget is eager-loaded on this page (boosts uses
-     LBLogin extensively for replies/likes/zaps), so the swap is fast. -->
+<!-- Identity slot placeholder — populated synchronously so returning
+     visitors see a shimmer until the widget bundle replaces it. Mirrors
+     index.html / boosts.html. -->
 <script>
 (function () {
   var slot = document.getElementById('lb-identity-slot');
@@ -503,9 +481,6 @@
     slot.innerHTML = '<button type="button" class="lb-identity-placeholder" aria-label="Sign in with Nostr">Sign in</button>';
     var btn = slot.querySelector('button');
     btn.addEventListener('click', function () {
-      // The widget defer-loads alongside this page; by the time a user
-      // can click, window.LBLogin is usually defined. Optional chain
-      // for safety in case of really slow scripts.
       if (window.LBLogin && typeof window.LBLogin.requestLogin === 'function') {
         window.LBLogin.requestLogin();
       }
@@ -514,11 +489,8 @@
 })();
 </script>
 
-<!-- Boost-the-show placeholder click handler — same pattern as the
-     home page so the lazy-load behavior matches. The widget here is
-     eager-loaded by the defer script below, so the placeholder is
-     replaced quickly; this handler is the fallback for the brief
-     window before that happens. -->
+<!-- Boost-the-show placeholder handler — fallback for the brief window
+     before the widget bundle replaces the placeholder. -->
 <script>
 (function () {
   var ph = document.querySelector('[data-lb-boost-trigger="show"]');
@@ -543,8 +515,9 @@
   }
 </script>
 
-<!-- PWA install affordance — same script as index.html. -->
+<!-- PWA install affordance -->
 <script src="assets/widgets/pwa-install.js" defer></script>
 <script src="/assets/js/nav.js" defer></script>
+<script src="/assets/js/stats.js" defer></script>
 </body>
 </html>
