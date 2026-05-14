@@ -348,13 +348,24 @@
       stroke: var(--white);
       stroke-width: 1.5;
     }
-    .stats-chart-legend {
-      margin-top: 0.7rem;
-      font-size: 0.82rem;
-      color: var(--muted);
-      font-style: italic;
-    }
 
+    /* ── Episode leaderboard (horizontal bars) ── */
+    .stats-bar-svg { width: 100%; height: auto; display: block; }
+    .stats-bar { fill: var(--orange); }
+    .stats-bar-label {
+      fill: var(--navy);
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-size: 13px;
+      font-weight: 700;
+      text-anchor: end;
+    }
+    .stats-bar-value {
+      fill: var(--muted);
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-size: 12px;
+      font-weight: 600;
+      text-anchor: start;
+    }
     /* ── Footer (mirrors index.html) ── */
     footer {
       background: #12253f;
@@ -458,7 +469,28 @@
     </div>
   </div>
 
-  <p class="stats-chart-legend">Dashed vertical lines mark when each episode was released.</p>
+</section>
+
+<!-- ══════════════════════════════ EPISODE LEADERBOARD ══════════════════════════════ -->
+<section class="section-wide">
+  <h2 class="stats-chart-heading">Episode Leaderboard</h2>
+  <p class="stats-chart-sub" data-board-sub>Loading…</p>
+
+  <div class="stats-chart-controls" role="radiogroup" aria-label="Leaderboard metric">
+    <label class="stats-chart-opt">
+      <input type="radio" name="stats-board-view" value="sats" checked /> Total Sats
+    </label>
+    <label class="stats-chart-opt">
+      <input type="radio" name="stats-board-view" value="supporters" /> Supporters
+    </label>
+  </div>
+
+  <div class="stats-chart-canvas" data-stats-leaderboard>
+    <div class="stats-loading">
+      <div class="loading-spinner"></div><br />
+      Loading episode stats…
+    </div>
+  </div>
 </section>
 
 <!-- ══════════════════════════════ FOOTER ══════════════════════════════ -->

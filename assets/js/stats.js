@@ -22,7 +22,9 @@
 
   var canvas = document.querySelector('[data-stats-canvas]');
   var subEl = document.querySelector('[data-stats-sub]');
-  if (!canvas) return;
+  var boardCanvas = document.querySelector('[data-stats-leaderboard]');
+  var boardSubEl = document.querySelector('[data-board-sub]');
+  if (!canvas && !boardCanvas) return;
 
   Promise.all([
     fetch(SATS_URL).then(function (r) { return r.ok ? r.json() : null; })
@@ -39,11 +41,13 @@
     });
     if (!rows.length) { showError(); return; }
     render(rows, rssXml ? parseEpisodes(rssXml) : []);
+    renderLeaderboard(rows);
   });
 
   function showError() {
-    canvas.innerHTML =
-      '<p class="stats-error">Couldn\'t load sats data right now — try again later.</p>';
+    var msg = '<p class="stats-error">Couldn\'t load sats data right now — try again later.</p>';
+    if (canvas) canvas.innerHTML = msg;
+    if (boardCanvas) boardCanvas.innerHTML = msg;
   }
 
   // ── RSS parsing — episode number + publish date for the markers ────
@@ -95,8 +99,9 @@
       .trim();
   }
 
-  // ── Render ─────────────────────────────────────────────────────────
+  // ── Sats-over-time chart ───────────────────────────────────────────
   function render(rows, episodes) {
+    if (!canvas) return;
     // Bucket every row's total_sats by UTC calendar day.
     var byDay = Object.create(null);
     var minMs = Infinity, maxMs = -Infinity;
@@ -245,6 +250,93 @@
       ticks.push({ ms: minMs, label: MONTHS[start.getUTCMonth()] });
     }
     return ticks;
+  }
+
+  // ── Episode leaderboard — horizontal bar chart ─────────────────────
+  function renderLeaderboard(rows) {
+    if (!boardCanvas) return;
+
+    // Group episode-attributed rows by episode number. A "supporter" is
+    // keyed by npub, else display name; rows with neither (truly anon)
+    // each count as their own supporter.
+    var byEp = Object.create(null);
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      if (row.episode_num == null) continue;  // show-level rows get no bar
+      var num = parseInt(row.episode_num, 10);
+      if (!isFinite(num) || num <= 0) continue;
+      var ep = byEp[num] ||
+        (byEp[num] = { num: num, sats: 0, keys: Object.create(null), anon: 0 });
+      ep.sats += row.total_sats;
+      var key = row.sender_npub || row.sender_name;
+      if (key) ep.keys[key] = true;
+      else ep.anon += 1;
+    }
+
+    var episodes = [];
+    for (var k in byEp) {
+      episodes.push({
+        num: byEp[k].num,
+        sats: byEp[k].sats,
+        supporters: Object.keys(byEp[k].keys).length + byEp[k].anon,
+      });
+    }
+    if (!episodes.length) {
+      boardCanvas.innerHTML = '<p class="stats-error">No episode data yet.</p>';
+      return;
+    }
+
+    function draw(metric) {
+      var sorted = episodes.slice()
+        .sort(function (a, b) { return b[metric] - a[metric]; })
+        .slice(0, 10);
+      boardCanvas.innerHTML = buildBarSvg(sorted, metric);
+      if (boardSubEl) {
+        boardSubEl.textContent = metric === 'sats'
+          ? 'Top ' + sorted.length + ' episodes by total sats received (boosts + streams)'
+          : 'Top ' + sorted.length + ' episodes by unique supporters';
+      }
+    }
+    draw('sats');
+
+    var radios = document.querySelectorAll('input[name="stats-board-view"]');
+    for (var r = 0; r < radios.length; r++) {
+      radios[r].addEventListener('change', function (e) {
+        if (e.target.checked) draw(e.target.value);
+      });
+    }
+  }
+
+  // Horizontal bar chart: one bar per episode, sorted longest-first.
+  function buildBarSvg(items, metric) {
+    var W = 720;
+    var rowH = 30, barH = 18, mT = 14, mB = 14, mL = 58, mR = 88;
+    var H = mT + mB + items.length * rowH;
+    var tw = W - mL - mR;
+
+    var maxVal = 0;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i][metric] > maxVal) maxVal = items[i][metric];
+    }
+    if (maxVal <= 0) maxVal = 1;
+
+    var parts = [];
+    for (var j = 0; j < items.length; j++) {
+      var it = items[j];
+      var val = it[metric];
+      var cy = mT + j * rowH + rowH / 2;
+      var bw = Math.max((val / maxVal) * tw, 2);
+      parts.push('<text class="stats-bar-label" x="' + (mL - 8) + '" y="' +
+        (cy + 4) + '">Ep ' + it.num + '</text>');
+      parts.push('<rect class="stats-bar" x="' + mL + '" y="' + (cy - barH / 2) +
+        '" width="' + bw + '" height="' + barH + '" rx="3"/>');
+      parts.push('<text class="stats-bar-value" x="' + (mL + bw + 8) + '" y="' +
+        (cy + 4) + '">' + fmtSats(val) + '</text>');
+    }
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" class="stats-bar-svg" ' +
+      'role="img" preserveAspectRatio="xMidYMid meet" aria-label="Episodes ranked by ' +
+      (metric === 'sats' ? 'total sats received' : 'unique supporters') + '">' +
+      parts.join('') + '</svg>';
   }
 
   // ── Helpers ────────────────────────────────────────────────────────
