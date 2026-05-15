@@ -559,18 +559,19 @@
   }
 
   // Custom JS tooltip system, shared by every chart on the page.
+  // Wired at the DOCUMENT level via delegation — turns out per-canvas
+  // listeners weren't catching reliably in Chrome on Android / the PWA
+  // (events were either being swallowed inside the inline SVG's hit
+  // graph or routed to body), so a single document-level handler
+  // covers every chart and never misses regardless of where the touch
+  // ends up retargeted to.
   //
-  // Two interaction modes layered on the same popup:
+  // Two interaction modes share the same popup:
   //   - Desktop hover — mouseover shows a transient tooltip, mouseout
-  //     hides it; native SVG <title> would do this too but with a fixed
-  //     ~half-second delay, so the data points feel sluggish.
-  //   - Tap-to-pin — clicking (or tapping, on touch devices where mouse
-  //     events don't fire reliably) PINS the tooltip until you tap
-  //     somewhere else. This is the standard mobile pattern.
-  //
-  // Wires up by event delegation per canvas; any descendant with a
-  // [data-tip] attribute participates automatically, so re-rendering
-  // the canvas innerHTML on radio toggles keeps working.
+  //     hides it (instant; native SVG <title> would have a ~half-second
+  //     browser delay).
+  //   - Tap-to-pin — clicking or tapping a [data-tip] element pins the
+  //     tooltip; tapping anywhere else dismisses it.
   var chartTooltipEl = null;
   var chartTooltipPinned = false;
 
@@ -581,29 +582,6 @@
     tip.hidden = true;
     document.body.appendChild(tip);
     chartTooltipEl = tip;
-    // Tap-elsewhere dismiss. Canvas tippable-element handlers call
-    // stopPropagation, so these listeners only fire for taps/clicks on
-    // background / non-tippable areas. touchend is the mobile path
-    // (the synthesized click after touchend is unreliable on some
-    // Android setups, especially inside an installed PWA).
-    document.addEventListener('click', function () {
-      if (!chartTooltipPinned) return;
-      chartTooltipPinned = false;
-      tip.hidden = true;
-    });
-    document.addEventListener('touchend', function () {
-      if (!chartTooltipPinned) return;
-      chartTooltipPinned = false;
-      tip.hidden = true;
-    });
-    return tip;
-  }
-
-  function setupChartTooltip(canvas) {
-    if (!canvas) return;
-    if (canvas.dataset.chartTipWired) return;
-    canvas.dataset.chartTipWired = '1';
-    var tip = ensureChartTooltipEl();
 
     function positionTip(coord) {
       // Accepts MouseEvent or Touch (both have .clientX / .clientY).
@@ -620,15 +598,10 @@
       tip.style.left = px + 'px';
       tip.style.top = py + 'px';
     }
-    function pinAt(hit, coord) {
-      var text = hit.getAttribute('data-tip');
-      if (!text) return;
-      chartTooltipPinned = true;
-      tip.textContent = text;
-      tip.hidden = false;
-      positionTip(coord);
-    }
-    canvas.addEventListener('mouseover', function (e) {
+
+    // Hover layer — desktop mouse only. mouseover on touch is unreliable
+    // (sometimes synthesized, sometimes not), so it's just additive.
+    document.addEventListener('mouseover', function (e) {
       if (chartTooltipPinned) return;
       var hit = e.target.closest && e.target.closest('[data-tip]');
       if (!hit) return;
@@ -638,42 +611,56 @@
       tip.hidden = false;
       positionTip(e);
     });
-    canvas.addEventListener('mousemove', function (e) {
+    document.addEventListener('mousemove', function (e) {
       if (chartTooltipPinned) return;
       if (tip.hidden) return;
       if (!(e.target.closest && e.target.closest('[data-tip]'))) return;
       positionTip(e);
     });
-    canvas.addEventListener('mouseout', function (e) {
+    document.addEventListener('mouseout', function (e) {
       if (chartTooltipPinned) return;
       var hit = e.target.closest && e.target.closest('[data-tip]');
       if (!hit) return;
       var to = e.relatedTarget;
       if (to && hit.contains(to)) return;
-      // Moving directly into another tippable element — let its
-      // mouseover take over without an intermediate hide-flicker.
       if (to && to.closest && to.closest('[data-tip]')) return;
       tip.hidden = true;
     });
-    // Three redundant tap handlers — click (works on desktop, sometimes
-    // on mobile), pointerup (modern unified mouse+touch+pen, what most
-    // mobile browsers fire reliably), touchend (last-resort raw touch).
-    // Whichever fires first pins; subsequent ones re-pin to the same
-    // element (idempotent). Mobile Chrome / the PWA were dropping
-    // click events on bare SVG elements, hence the belt-and-suspenders.
-    function pinFromEvent(e) {
+
+    // Tap/click layer — pin if hitting a [data-tip], dismiss otherwise.
+    // Three event types so we catch whichever the browser actually
+    // fires reliably on this platform. Each is idempotent; multiple
+    // can fire on the same gesture without harm.
+    function pinOrDismiss(e) {
       var hit = e.target.closest && e.target.closest('[data-tip]');
-      if (!hit) return;
-      if (e.cancelable) {
-        try { e.preventDefault(); } catch (_) {}
+      if (hit) {
+        var text = hit.getAttribute('data-tip');
+        if (!text) return;
+        if (e.cancelable) {
+          try { e.preventDefault(); } catch (_) {}
+        }
+        var coord = (e.changedTouches && e.changedTouches[0]) || e;
+        chartTooltipPinned = true;
+        tip.textContent = text;
+        tip.hidden = false;
+        positionTip(coord);
+      } else if (chartTooltipPinned) {
+        chartTooltipPinned = false;
+        tip.hidden = true;
       }
-      e.stopPropagation();
-      var coord = (e.changedTouches && e.changedTouches[0]) || e;
-      pinAt(hit, coord);
     }
-    canvas.addEventListener('click', pinFromEvent);
-    canvas.addEventListener('pointerup', pinFromEvent);
-    canvas.addEventListener('touchend', pinFromEvent, { passive: false });
+    document.addEventListener('click', pinOrDismiss);
+    document.addEventListener('pointerup', pinOrDismiss);
+    document.addEventListener('touchend', pinOrDismiss, { passive: false });
+
+    return tip;
+  }
+
+  // Kept as the public API the chart renders call. The document-level
+  // listeners in ensureChartTooltipEl cover everything, so this is now
+  // just an idempotent setup hook.
+  function setupChartTooltip(_canvas) {
+    ensureChartTooltipEl();
   }
 
   function buildAppMixSvg(weeks, apps, view) {

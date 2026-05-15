@@ -10,7 +10,7 @@
 //   transient network blip instead of failing the whole resource load)
 // - Cross-origin (fonts on first deploy, Nostr relays, third-party): pass through
 
-const VERSION = 'lb-v9';
+const VERSION = 'lb-v10';
 const STATIC_CACHE = `${VERSION}-static`;
 const HTML_CACHE = `${VERSION}-html`;
 const WIDGET_CACHE = `${VERSION}-widgets`;
