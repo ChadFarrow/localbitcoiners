@@ -273,6 +273,8 @@
         if (e.target.checked) draw(e.target.value);
       });
     }
+
+    setupChartTooltip(canvas);
   }
 
   // ── Inline-SVG chart renderer ──────────────────────────────────────
@@ -393,7 +395,7 @@
           tipText = bk.label + ' — ' + fmtSats(grand) + ' sats';
         }
         parts.push('<path class="stats-chart-band ' + bk.cls + '" d="' + pathD +
-          '"><title>' + tipText + '</title></path>');
+          '" data-tip="' + xmlEsc(tipText) + '"></path>');
       }
       var ptsCum = [];
       for (var dc = 0; dc < days.length; dc++) {
@@ -429,8 +431,7 @@
       var bx = Math.max(mL, ex - bandW / 2);
       var bxEnd = Math.min(mL + pw, ex + bandW / 2);
       var tip = 'Ep ' + ep.num + ' — ' + fmtDateET(ep.pubMs);
-      parts.push('<g class="stats-chart-epmark">' +
-        '<title>' + xmlEsc(tip) + '</title>' +
+      parts.push('<g class="stats-chart-epmark" data-tip="' + xmlEsc(tip) + '">' +
         '<rect class="stats-chart-epband" x="' + bx + '" y="' + mT +
         '" width="' + (bxEnd - bx) + '" height="' + ph + '" rx="2"/>' +
         '<text class="stats-chart-eplabel" x="' + ex + '" y="' + (mT - 9) +
@@ -442,10 +443,10 @@
     if (view === 'daily') {
       for (var di = 0; di < days.length; di++) {
         if (days[di].daily <= 0) continue;
+        var dailyTip = fmtDate(days[di].ms) + ': ' + fmtSats(days[di].daily) + ' sats';
         parts.push('<circle class="stats-chart-dot" cx="' + x(days[di].ms) +
-          '" cy="' + y(days[di].daily) + '" r="3.5"><title>' +
-          fmtDate(days[di].ms) + ': ' + fmtSats(days[di].daily) +
-          ' sats</title></circle>');
+          '" cy="' + y(days[di].daily) + '" r="3.5" data-tip="' +
+          xmlEsc(dailyTip) + '"></circle>');
       }
     }
 
@@ -554,21 +555,48 @@
       });
     }
 
-    setupAppMixTooltip();
+    setupChartTooltip(appmixCanvas);
   }
 
-  // Custom JS tooltip for app-mix dots. Native <title> tooltips have a
-  // browser-imposed ~500ms delay; this fires immediately on mouseover.
-  // Event-delegated on the canvas so re-renders (radio toggle) keep
-  // working without re-binding per dot.
-  var appmixTooltipEl = null;
-  function setupAppMixTooltip() {
-    if (appmixTooltipEl || !appmixCanvas) return;
+  // Custom JS tooltip system, shared by every chart on the page.
+  //
+  // Two interaction modes layered on the same popup:
+  //   - Desktop hover — mouseover shows a transient tooltip, mouseout
+  //     hides it; native SVG <title> would do this too but with a fixed
+  //     ~half-second delay, so the data points feel sluggish.
+  //   - Tap-to-pin — clicking (or tapping, on touch devices where mouse
+  //     events don't fire reliably) PINS the tooltip until you tap
+  //     somewhere else. This is the standard mobile pattern.
+  //
+  // Wires up by event delegation per canvas; any descendant with a
+  // [data-tip] attribute participates automatically, so re-rendering
+  // the canvas innerHTML on radio toggles keeps working.
+  var chartTooltipEl = null;
+  var chartTooltipPinned = false;
+
+  function ensureChartTooltipEl() {
+    if (chartTooltipEl) return chartTooltipEl;
     var tip = document.createElement('div');
     tip.className = 'stats-tooltip';
     tip.hidden = true;
     document.body.appendChild(tip);
-    appmixTooltipEl = tip;
+    chartTooltipEl = tip;
+    // Tap-elsewhere dismiss. Canvas click handlers stopPropagation when
+    // hitting a [data-tip] element, so this only fires for clicks on
+    // background / non-tippable elements.
+    document.addEventListener('click', function () {
+      if (!chartTooltipPinned) return;
+      chartTooltipPinned = false;
+      tip.hidden = true;
+    });
+    return tip;
+  }
+
+  function setupChartTooltip(canvas) {
+    if (!canvas) return;
+    if (canvas.dataset.chartTipWired) return;
+    canvas.dataset.chartTipWired = '1';
+    var tip = ensureChartTooltipEl();
 
     function positionTip(e) {
       var pad = 12;
@@ -580,29 +608,45 @@
       tip.style.left = px + 'px';
       tip.style.top = py + 'px';
     }
-    appmixCanvas.addEventListener('mouseover', function (e) {
-      var grp = e.target.closest && e.target.closest('.stats-appmix-dotgrp');
-      if (!grp) return;
-      var text = grp.getAttribute('data-tip');
+    canvas.addEventListener('mouseover', function (e) {
+      if (chartTooltipPinned) return;
+      var hit = e.target.closest && e.target.closest('[data-tip]');
+      if (!hit) return;
+      var text = hit.getAttribute('data-tip');
       if (!text) return;
       tip.textContent = text;
       tip.hidden = false;
       positionTip(e);
     });
-    appmixCanvas.addEventListener('mousemove', function (e) {
+    canvas.addEventListener('mousemove', function (e) {
+      if (chartTooltipPinned) return;
       if (tip.hidden) return;
-      if (!(e.target.closest && e.target.closest('.stats-appmix-dotgrp'))) return;
+      if (!(e.target.closest && e.target.closest('[data-tip]'))) return;
       positionTip(e);
     });
-    appmixCanvas.addEventListener('mouseout', function (e) {
-      var grp = e.target.closest && e.target.closest('.stats-appmix-dotgrp');
-      if (!grp) return;
+    canvas.addEventListener('mouseout', function (e) {
+      if (chartTooltipPinned) return;
+      var hit = e.target.closest && e.target.closest('[data-tip]');
+      if (!hit) return;
       var to = e.relatedTarget;
-      if (to && grp.contains(to)) return;
-      // Moving directly into another dot's group — let its mouseover
-      // take over without an intermediate hide-flicker.
-      if (to && to.closest && to.closest('.stats-appmix-dotgrp')) return;
+      if (to && hit.contains(to)) return;
+      // Moving directly into another tippable element — let its
+      // mouseover take over without an intermediate hide-flicker.
+      if (to && to.closest && to.closest('[data-tip]')) return;
       tip.hidden = true;
+    });
+    canvas.addEventListener('click', function (e) {
+      var hit = e.target.closest && e.target.closest('[data-tip]');
+      if (!hit) return;
+      var text = hit.getAttribute('data-tip');
+      if (!text) return;
+      // Stop the document-level dismiss handler from immediately
+      // un-pinning the tooltip we're about to pin.
+      e.stopPropagation();
+      chartTooltipPinned = true;
+      tip.textContent = text;
+      tip.hidden = false;
+      positionTip(e);
     });
   }
 
@@ -695,8 +739,8 @@
           : app2 + ' — ' + fmtSats(Math.round(sp.val)) + ' sats (' + fmtWeekRange(sp.ms) + ')';
         var dx = x(sp.ms), dy = y(sp.val);
         // <g> wraps an invisible-hit-testable halo + visible inner dot;
-        // the halo grows visible on hover via CSS, and the JS tooltip
-        // (setupAppMixTooltip) reads data-tip for instant popup text.
+        // the halo grows visible on hover via CSS, and setupChartTooltip
+        // reads data-tip to show the popup (hover OR tap-to-pin).
         parts.push('<g class="stats-appmix-dotgrp ' + cls +
           '" data-tip="' + xmlEsc(labelTxt) + '">' +
           '<circle class="stats-appmix-halo" cx="' + dx + '" cy="' + dy + '" r="11"/>' +
@@ -1281,7 +1325,8 @@
     return String(s)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
   function shortNpub(npub) {
