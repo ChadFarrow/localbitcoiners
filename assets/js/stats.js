@@ -751,10 +751,10 @@
     }
   }
 
-  // Show one decimal for sub-percent slivers (BoostMeBitch ≈ 0.1%);
-  // round to integer once we're at 1% or more.
+  // Always show one decimal place so tooltips read consistently across
+  // dominant apps and sub-percent slivers (e.g. "87.3%" + "0.1%").
   function fmtPct(n) {
-    return n >= 1 ? Math.round(n) + '%' : n.toFixed(1) + '%';
+    return n.toFixed(1) + '%';
   }
 
   // ── Episode leaderboard — horizontal bar chart ─────────────────────
