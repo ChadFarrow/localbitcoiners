@@ -97,6 +97,16 @@
       --bucket-adbudget: #8b5cf6;  /* purple */
       --bucket-fountain: #eab308;  /* gold */
       --bucket-costs:    #64748b;  /* slate — neutral, reads as "expense" */
+
+      /* App palette for the app-mix-over-time chart. Distinct hues so 6
+         lines are still readable; unknown apps fall through to slate. */
+      --app-fountain:    #f7931a;
+      --app-website:     #1e3a5f;
+      --app-podguru:     #8b5cf6;
+      --app-curio:       #14b8a6;
+      --app-castamatic:  #eab308;
+      --app-bmb:         #15803d;
+      --app-other:       #64748b;
     }
 
     html { scroll-behavior: smooth; }
@@ -359,6 +369,53 @@
     .stats-band-adbudget { fill: var(--bucket-adbudget); stroke: var(--bucket-adbudget); }
     .stats-band-fountain { fill: var(--bucket-fountain); stroke: var(--bucket-fountain); }
     .stats-band-costs    { fill: var(--bucket-costs);    stroke: var(--bucket-costs); }
+
+    /* App-mix chart — per-app variable + line/dot styles using it. */
+    .stats-app-fountain   { --app-c: var(--app-fountain); }
+    .stats-app-website    { --app-c: var(--app-website); }
+    .stats-app-podguru    { --app-c: var(--app-podguru); }
+    .stats-app-curio      { --app-c: var(--app-curio); }
+    .stats-app-castamatic { --app-c: var(--app-castamatic); }
+    .stats-app-bmb        { --app-c: var(--app-bmb); }
+    .stats-app-other      { --app-c: var(--app-other); }
+    .stats-appmix-line {
+      fill: none;
+      stroke: var(--app-c);
+      stroke-width: 1.6;
+      stroke-linejoin: round;
+      stroke-linecap: round;
+    }
+    /* Each data point is a <g> wrapping an invisible-but-hit-testable
+       halo (which becomes a faint colored ring on hover) and the visible
+       inner dot. Custom JS tooltip handles the popup so it appears
+       instantly — the native <title> delay is fixed at ~half a second. */
+    .stats-appmix-halo {
+      fill: var(--app-c);
+      fill-opacity: 0;
+      pointer-events: all;
+      transition: fill-opacity 0.1s ease;
+    }
+    .stats-appmix-dotgrp:hover .stats-appmix-halo { fill-opacity: 0.22; }
+    .stats-appmix-dot {
+      fill: var(--app-c);
+      stroke: var(--white);
+      stroke-width: 1;
+      pointer-events: none;
+    }
+    .stats-tooltip {
+      position: fixed;
+      z-index: 1000;
+      pointer-events: none;
+      background: var(--navy);
+      color: var(--cream);
+      font-size: 0.78rem;
+      font-weight: 600;
+      padding: 0.4rem 0.65rem;
+      border-radius: 6px;
+      white-space: nowrap;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.32);
+    }
+    .stats-tooltip[hidden] { display: none; }
 
     .stats-chart-legend-list {
       list-style: none;
@@ -694,6 +751,30 @@
       Loading pre-Nostr boosts…
     </div>
   </div>
+</section>
+
+<!-- ══════════════════════════════ APP MIX OVER TIME ══════════════════════════════ -->
+<section class="section-wide">
+  <h2 class="stats-chart-heading">App Mix Over Time</h2>
+  <p class="stats-chart-sub" data-appmix-sub>Loading…</p>
+
+  <div class="stats-chart-controls" role="radiogroup" aria-label="App-mix view">
+    <label class="stats-chart-opt">
+      <input type="radio" name="stats-appmix-view" value="percent" checked /> Percentage
+    </label>
+    <label class="stats-chart-opt">
+      <input type="radio" name="stats-appmix-view" value="absolute" /> Sats
+    </label>
+  </div>
+
+  <div class="stats-chart-canvas" data-stats-appmix>
+    <div class="stats-loading">
+      <div class="loading-spinner"></div><br />
+      Loading app mix…
+    </div>
+  </div>
+
+  <ul class="stats-chart-legend-list" data-appmix-legend></ul>
 </section>
 
 <!-- ══════════════════════════════ FOOTER ══════════════════════════════ -->
