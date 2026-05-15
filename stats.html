@@ -569,21 +569,26 @@
        just space the top-level boost entries apart. */
     .stats-boost-feed .note-list > li + li { margin-top: 0.6rem; }
 
-    /* Streamers shoutout: collapse per-row cards into one compact list
-       inside the outer canvas card. Scoped so the Pre-Nostr section
-       keeps its individual mini-cards. */
-    [data-stats-streamers] .ep-supporter-list { gap: 0; }
-    [data-stats-streamers] .ep-supporter-row {
+    /* Streamers shoutout + Top Zappers: collapse per-row cards into one
+       compact list inside the outer canvas card. Scoped so the
+       Pre-Nostr section keeps its individual mini-cards. */
+    [data-stats-streamers] .ep-supporter-list,
+    [data-stats-zappers]   .ep-supporter-list { gap: 0; }
+    [data-stats-streamers] .ep-supporter-row,
+    [data-stats-zappers]   .ep-supporter-row {
       background: transparent;
       border: none;
       border-radius: 0;
       padding: 0.4rem 0.4rem;
     }
-    [data-stats-streamers] .ep-supporter-row + .ep-supporter-row {
+    [data-stats-streamers] .ep-supporter-row + .ep-supporter-row,
+    [data-stats-zappers]   .ep-supporter-row + .ep-supporter-row {
       border-top: 1px solid var(--border);
     }
-    [data-stats-streamers] .ep-supporter-avatar { width: 24px; height: 24px; }
-    [data-stats-streamers] .ep-supporter-name { font-size: 0.92rem; }
+    [data-stats-streamers] .ep-supporter-avatar,
+    [data-stats-zappers]   .ep-supporter-avatar { width: 24px; height: 24px; }
+    [data-stats-streamers] .ep-supporter-name,
+    [data-stats-zappers]   .ep-supporter-name { font-size: 0.92rem; }
     /* ── Footer (mirrors index.html) ── */
     footer {
       background: #12253f;
@@ -767,6 +772,18 @@
     <div class="stats-loading">
       <div class="loading-spinner"></div><br />
       Loading streamers…
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════ TOP ZAPPERS ══════════════════════════════ -->
+<section class="section-wide">
+  <h2 class="stats-chart-heading">Top Zappers</h2>
+  <p class="stats-chart-sub">Top 10 zappers by all-time sats zapped</p>
+  <div class="stats-chart-canvas" data-stats-zappers>
+    <div class="stats-loading">
+      <div class="loading-spinner"></div><br />
+      Loading zappers…
     </div>
   </div>
 </section>

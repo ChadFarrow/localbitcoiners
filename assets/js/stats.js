@@ -20,6 +20,7 @@
 
   var SATS_URL = '/data/sats.json';
   var RSS_URL = '/api/rss';
+  var ZAPS_URL = '/data/zaps.json';
   var DAY_MS = 86400000;
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -66,31 +67,37 @@
   var peopleSubEl = document.querySelector('[data-people-sub]');
   var preNostrCanvas = document.querySelector('[data-stats-prenostr]');
   var streamersCanvas = document.querySelector('[data-stats-streamers]');
+  var zappersCanvas = document.querySelector('[data-stats-zappers]');
   var appmixCanvas = document.querySelector('[data-stats-appmix]');
   var appmixSubEl = document.querySelector('[data-appmix-sub]');
   var appmixLegendEl = document.querySelector('[data-appmix-legend]');
   if (!canvas && !boardCanvas && !peopleCanvas && !preNostrCanvas &&
-      !streamersCanvas && !appmixCanvas) return;
+      !streamersCanvas && !zappersCanvas && !appmixCanvas) return;
 
   Promise.all([
     fetch(SATS_URL).then(function (r) { return r.ok ? r.json() : null; })
       .catch(function () { return null; }),
     fetch(RSS_URL).then(function (r) { return r.ok ? r.text() : null; })
       .catch(function () { return null; }),
+    fetch(ZAPS_URL).then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; }),
   ]).then(function (results) {
     var doc = results[0];
     var rssXml = results[1];
+    var zapsDoc = results[2];
     if (!doc || !Array.isArray(doc.rows)) { showError(); return; }
     var rows = doc.rows.filter(function (row) {
       return typeof row.total_sats === 'number' && row.total_sats > 0 &&
         isFinite(Date.parse(row.settled_at));
     });
     if (!rows.length) { showError(); return; }
+    var zaps = (zapsDoc && Array.isArray(zapsDoc.rows)) ? zapsDoc.rows : [];
     render(rows, rssXml ? parseEpisodes(rssXml) : []);
     renderAppMix(rows);
     renderLeaderboard(rows);
     renderIdentityBoard(rows);
     renderStreamerShoutout(rows);
+    renderTopZappers(zaps);
     renderBigPreNostr(rows);
   });
 
@@ -101,6 +108,7 @@
     if (peopleCanvas) peopleCanvas.innerHTML = msg;
     if (preNostrCanvas) preNostrCanvas.innerHTML = msg;
     if (streamersCanvas) streamersCanvas.innerHTML = msg;
+    if (zappersCanvas) zappersCanvas.innerHTML = msg;
     if (appmixCanvas) appmixCanvas.innerHTML = msg;
   }
 
@@ -1308,6 +1316,82 @@
     head.appendChild(meta);
     li.appendChild(head);
     return { li: li, npubEl: npubEl };
+  }
+
+  // ── Top Zappers — all-time totals per zap-sender ───────────────────
+  // Aggregates zaps.json by sender_npub, sums sats, sorts largest-first
+  // and renders the same compact mini-cards the streamers shoutout uses.
+  // No app badge (zaps don't have one). Hosts left in deliberately —
+  // zaps from hosts go to the ad budget, not back to themselves.
+  function renderTopZappers(zapRows) {
+    if (!zappersCanvas) return;
+
+    var byId = Object.create(null);
+    var anonIdx = 0;
+    for (var i = 0; i < zapRows.length; i++) {
+      var row = zapRows[i];
+      if (typeof row.sats !== 'number' || row.sats <= 0) continue;
+      var npub = row.sender_npub || '';
+      var key = npub || ('__anon__' + (anonIdx++));
+      var rec = byId[key] || (byId[key] = {
+        npub: npub,
+        label: row.sender_name || (npub ? shortNpub(npub) : 'Anonymous'),
+        sats: 0,
+      });
+      rec.sats += row.sats;
+    }
+
+    var zappers = [];
+    for (var k in byId) zappers.push(byId[k]);
+    if (!zappers.length) {
+      zappersCanvas.innerHTML = '<p class="stats-error">No zaps yet.</p>';
+      return;
+    }
+    zappers.sort(function (a, b) { return b.sats - a.sats; });
+    zappers = zappers.slice(0, 10);
+
+    // Sync pre-resolve from cache so cached zappers render with names
+    // on the first paint instead of a truncated-npub flash.
+    var preNpubsZ = [];
+    for (var z = 0; z < zappers.length; z++) {
+      if (zappers[z].npub) preNpubsZ.push(zappers[z].npub);
+    }
+    var cachedZ = syncCachedProfiles(preNpubsZ);
+
+    var list = document.createElement('ul');
+    list.className = 'ep-supporter-list';
+    var npubEls = [];
+    for (var j = 0; j < zappers.length; j++) {
+      // buildShoutoutRow skips the app badge when s.app is falsy.
+      var built = buildShoutoutRow(zappers[j], cachedZ);
+      list.appendChild(built.li);
+      if (built.npubEl) npubEls.push(built.npubEl);
+    }
+    zappersCanvas.innerHTML = '';
+    zappersCanvas.appendChild(list);
+
+    // Async resolve the rest via the shared relay helper.
+    var npubs = [], seen = Object.create(null);
+    for (var n = 0; n < npubEls.length; n++) {
+      if (!seen[npubEls[n].npub]) {
+        seen[npubEls[n].npub] = 1;
+        npubs.push(npubEls[n].npub);
+      }
+    }
+    if (npubs.length && window.LBEpisodeEnhance &&
+        typeof window.LBEpisodeEnhance.fetchProfilesByNpub === 'function') {
+      window.LBEpisodeEnhance.fetchProfilesByNpub(npubs).then(function (profiles) {
+        for (var m = 0; m < npubEls.length; m++) {
+          var prof = profiles[npubEls[m].npub];
+          if (!prof) continue;
+          if (prof.name) npubEls[m].nameEl.textContent = prof.name;
+          if (prof.picture) {
+            npubEls[m].avatarEl.style.backgroundImage =
+              'url("' + prof.picture.replace(/"/g, '%22') + '")';
+          }
+        }
+      }).catch(function () {});
+    }
   }
 
   // ── Helpers ────────────────────────────────────────────────────────
