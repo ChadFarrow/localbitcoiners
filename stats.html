@@ -334,10 +334,13 @@
       stroke-linejoin: round;
       stroke-linecap: round;
     }
-    .stats-chart-epline {
+    .stats-chart-epband {
+      fill: var(--navy-l);
+      fill-opacity: 0.1;
       stroke: var(--navy-l);
-      stroke-width: 2;
-      stroke-dasharray: 5 4;
+      stroke-opacity: 0.3;
+      stroke-width: 0.75;
+      transition: fill-opacity 0.12s ease, stroke-opacity 0.12s ease;
     }
     .stats-chart-eplabel {
       fill: var(--navy-l);
@@ -345,6 +348,15 @@
       font-size: 11px;
       font-weight: 700;
       text-anchor: middle;
+      transition: fill 0.12s ease;
+    }
+    /* Hover anywhere on the marker column brightens the band + label. */
+    .stats-chart-epmark:hover .stats-chart-epband {
+      fill-opacity: 0.32;
+      stroke-opacity: 0.7;
+    }
+    .stats-chart-epmark:hover .stats-chart-eplabel {
+      fill: var(--navy);
     }
     .stats-chart-dot {
       fill: var(--orange-d);

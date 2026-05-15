@@ -234,9 +234,11 @@
     parts.push('<path class="stats-chart-area" d="' + areaD + '"/>');
     parts.push('<polyline class="stats-chart-line" points="' + pts.join(' ') + '"/>');
 
-    // Episode publish markers — a bright vertical line with an "Ep N"
-    // label across the top. Drawn over the data line so they stand out;
-    // labels may crowd once there are many episodes (revisit then).
+    // Episode publish markers — a wide, faint highlight band per release
+    // plus an "Ep N" label; both brighten on hover (CSS, via the <g>
+    // wrapper). Bands are clamped to the plot so edge episodes don't
+    // overhang the axes. Labels may crowd once there are many episodes.
+    var bandW = 5;
     for (var e = 0; e < episodes.length; e++) {
       var ep = episodes[e];
       // Snap the marker to the same UTC day-bucket the sats data uses,
@@ -245,10 +247,15 @@
       var epDayMs = Math.floor(ep.pubMs / DAY_MS) * DAY_MS;
       if (epDayMs < minMs || epDayMs > maxMs) continue;
       var ex = x(epDayMs);
-      parts.push('<line class="stats-chart-epline" x1="' + ex + '" y1="' + mT +
-        '" x2="' + ex + '" y2="' + (mT + ph) + '"/>');
-      parts.push('<text class="stats-chart-eplabel" x="' + ex + '" y="' +
-        (mT - 9) + '">Ep ' + ep.num + '</text>');
+      var bx = Math.max(mL, ex - bandW / 2);
+      var bxEnd = Math.min(mL + pw, ex + bandW / 2);
+      var tip = 'Ep ' + ep.num + ' — ' + fmtDateET(ep.pubMs);
+      parts.push('<g class="stats-chart-epmark">' +
+        '<title>' + xmlEsc(tip) + '</title>' +
+        '<rect class="stats-chart-epband" x="' + bx + '" y="' + mT +
+        '" width="' + (bxEnd - bx) + '" height="' + ph + '" rx="2"/>' +
+        '<text class="stats-chart-eplabel" x="' + ex + '" y="' + (mT - 9) +
+        '">Ep ' + ep.num + '</text></g>');
     }
 
     // Daily view: mark every day that actually received sats with a
@@ -625,6 +632,26 @@
     } catch (e) {
       return new Date(ms).toISOString().slice(0, 10);
     }
+  }
+
+  // Episode markers tooltip the publish date in the show's local time
+  // (Eastern; tracks DST automatically via the IANA zone).
+  function fmtDateET(ms) {
+    try {
+      return new Date(ms).toLocaleDateString('en-US', {
+        weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+        timeZone: 'America/New_York',
+      });
+    } catch (e) {
+      return new Date(ms).toISOString().slice(0, 10);
+    }
+  }
+
+  function xmlEsc(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   }
 
   function shortNpub(npub) {
