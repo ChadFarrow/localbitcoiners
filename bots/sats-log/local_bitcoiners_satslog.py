@@ -49,6 +49,12 @@ aquafox_sats / guests_sats / fountain_sats — calculated by applying the
 hand-maintained ruleset in ``data/value-splits.csv`` (a bot INPUT) to
 total_sats per the row's (scope, era). The five sum to total_sats.
 
+And ``data/zaps.csv`` + ``data/zaps.json`` — every Nostr zap receipt
+(kind 9735) addressed to the LB npub. Queried from LB's NIP-65 outbox
+relays, paginated per relay, deduped by receipt id. Independent dataset
+from sats.csv (different grain — one row per zap receipt) so the website
+can aggregate per-zapper without touching sats.csv.
+
 State:
   ``state.json`` (gitignored) carries the Alby Hub ``last_processed`` cursor
   for incremental boost pagination. Stream rows and the Fountain ledger are
@@ -65,6 +71,7 @@ import json
 import time
 import requests
 import subprocess
+import websocket
 from collections import Counter
 from pathlib import Path
 
@@ -73,7 +80,10 @@ from boost_formatter import (
     classify_lb_tx, make_cache, persist_cache,
     build_rss_item_index, _extract_episode_number,
 )
-from nostr_utils import load_config, hex_to_npub
+from nostr_utils import (
+    load_config, hex_to_npub, npub_to_hex,
+    get_outbox_relays, NOSTR_RELAYS,
+)
 
 # --- Config ---
 CREDENTIALS_FILE = Path.home() / ".config/nostr-bots/credentials.env"
@@ -84,6 +94,24 @@ CSV_FILE         = REPO_ROOT / "data" / "sats.csv"
 SATS_JSON        = REPO_ROOT / "data" / "sats.json"
 FOUNTAIN_CSV     = REPO_ROOT / "data" / "fountain-api.csv"
 VALUE_SPLITS_CSV = REPO_ROOT / "data" / "value-splits.csv"  # hand-maintained bot INPUT
+ZAPS_CSV         = REPO_ROOT / "data" / "zaps.csv"
+ZAPS_JSON        = REPO_ROOT / "data" / "zaps.json"
+
+# Local Bitcoiners Nostr identity — used to query zap receipts addressed to us.
+LB_NPUB = "npub1cvcgs83gw6pcrhvtmlf8gdqaegx93qkznwry96jteqhh2cexgkfq45rtya"
+LB_HEX  = npub_to_hex(LB_NPUB)
+
+# Columns for data/zaps.csv. Independent from sats.csv (different dataset,
+# different grain — one row per kind 9735 zap receipt addressed to LB).
+ZAP_COLUMNS = [
+    "settled_at",       # ISO timestamp from the receipt's created_at
+    "zap_receipt_id",   # kind 9735 event id — unique per zap, dedup key
+    "zapped_event_id",  # the LB note that was zapped (may be blank for profile zaps)
+    "sender_npub",      # zapper's npub from the inner kind 9734; blank if anon
+    "sender_name",      # blank — Nostr identity is npub-only (kept for sats.csv parity)
+    "sats",             # integer; from the kind-9734 amount tag
+    "message",          # zap comment from the inner 9734 content
+]
 
 # Show launched 2026-02-02 — same backstop the episodesats leaderboard uses.
 # Once state.json exists the cursor in there wins.
@@ -1117,6 +1145,256 @@ def run_supporters(all_boost_rows):
 
 
 # ---------------------------------------------------------------------------
+# Nostr zaps — kind 9735 receipts addressed to the LB npub
+#
+# Source: relays. The pubkey now receives zaps to its own notes that don't all
+# pass through our node (aquafox is the lud16 destination for some), so the
+# Nostr-relay set is the canonical place to read zap history. We query LB's
+# NIP-65 outbox relays for every kind 9735 with `#p == LB_HEX`, paginate per
+# relay via the `until` cursor when a relay caps results, and dedupe receipts
+# by event id across relays. The inner kind 9734 in each receipt's
+# `description` tag is the signed zap request — that's where the zapper's
+# identity, the amount, and any zap message live.
+#
+# Output rows are independent from sats.csv (different dataset, different
+# grain) — written to data/zaps.csv + data/zaps.json. Per-person aggregation
+# is left to the website (group by sender_npub).
+# ---------------------------------------------------------------------------
+
+def fetch_zap_receipts(relay, pubkey_hex, since=0, page_limit=500, page_cap=100):
+    """Yield kind 9735 events addressed to pubkey_hex from one relay.
+    Paginates backwards via the `until` cursor when a page hits page_limit
+    (most relays cap at 500 events per filter). Bails after page_cap pages
+    to bound runaway queries."""
+    cur_until = None
+    for _ in range(page_cap):
+        flt = {"kinds": [9735], "#p": [pubkey_hex], "limit": page_limit}
+        if since:
+            flt["since"] = since
+        if cur_until is not None:
+            flt["until"] = cur_until
+        events = []
+        try:
+            ws = websocket.create_connection(relay, timeout=15)
+            ws.send(json.dumps(["REQ", "zaps", flt]))
+            while True:
+                msg = json.loads(ws.recv())
+                if msg[0] == "EVENT":
+                    events.append(msg[2])
+                elif msg[0] in ("EOSE", "CLOSED"):
+                    break
+            ws.close()
+        except Exception as e:
+            print(f"    [warn] relay query failed {relay}: {e}")
+            return
+        for ev in events:
+            yield ev
+        if len(events) < page_limit:
+            return  # got everything before this `until`
+        # Paginate further back. Use min created_at as the new until; if it
+        # hasn't advanced (boundary cluster), bail to avoid infinite loop.
+        oldest = min(int(ev.get("created_at", 0) or 0) for ev in events)
+        if cur_until is not None and oldest >= cur_until:
+            return
+        cur_until = oldest
+
+
+# BOLT11 invoice HRP encodes the amount as `lnbc<n><multiplier>1...` where
+# multiplier ∈ {m, u, n, p} = {milli, micro, nano, pico} bitcoin. Used as a
+# fallback when the kind-9734 amount tag is missing — happens on more than
+# half of real zap receipts in the wild despite NIP-57 marking the tag
+# required.
+_BOLT11_HRP_RE = re.compile(r"lnbc(\d+)([munp]?)1", re.IGNORECASE)
+_BOLT11_MULT_MSAT = {
+    "":  100_000_000_000,   # BTC      → 10^11 msats
+    "m": 100_000_000,       # milli    → 10^8 msats
+    "u": 100_000,           # micro    → 10^5 msats
+    "n": 100,               # nano     → 10^2 msats
+    "p": 0,                 # pico is fractional msats — too small to bother
+}
+
+
+def _parse_bolt11_msat(bolt11):
+    if not bolt11:
+        return 0
+    m = _BOLT11_HRP_RE.match(bolt11.lower())
+    if not m:
+        return 0
+    return int(m.group(1)) * _BOLT11_MULT_MSAT.get(m.group(2), 0)
+
+
+def parse_zap_receipt(ev):
+    """Extract our fields from a kind 9735 receipt. Returns a dict (or None
+    if the receipt is malformed). Per NIP-57 the inner kind 9734 — signed by
+    the actual zapper — lives in the receipt's `description` tag JSON. Amount
+    comes from the request's `amount` tag (msats), with the receipt's bolt11
+    HRP as a fallback when the amount tag is missing. Anonymous zaps (NIP-57's
+    burner-key flow, marked with an ["anon"] tag on the request) get a blank
+    sender_npub."""
+    if ev.get("kind") != 9735:
+        return None
+
+    desc_json = None
+    bolt11    = ""
+    zapped_event = ""
+    for t in ev.get("tags", []):
+        if len(t) < 2:
+            continue
+        if t[0] == "description":
+            desc_json = t[1]
+        elif t[0] == "bolt11":
+            bolt11 = t[1]
+        elif t[0] == "e" and not zapped_event:
+            zapped_event = t[1]
+
+    if not desc_json:
+        return None
+    try:
+        zap_req = json.loads(desc_json)
+    except Exception:
+        return None
+    if zap_req.get("kind") != 9734:
+        return None
+
+    zapper_hex = zap_req.get("pubkey") or ""
+    req_tags   = zap_req.get("tags", []) or []
+    is_anon    = any(len(t) >= 1 and t[0] == "anon" for t in req_tags)
+
+    sender_npub = ""
+    if zapper_hex and not is_anon:
+        try:
+            sender_npub = hex_to_npub(zapper_hex)
+        except Exception:
+            sender_npub = ""
+
+    # Amount: prefer the request's `amount` tag (msats); fall back to parsing
+    # the receipt's bolt11 invoice HRP. NIP-57 marks the amount tag required,
+    # but it's missing on a surprising fraction of real zaps — bolt11 always
+    # carries the amount (the payment couldn't have settled otherwise).
+    amount_msat = 0
+    for t in req_tags:
+        if len(t) >= 2 and t[0] == "amount":
+            try:
+                amount_msat = int(t[1])
+                break
+            except Exception:
+                pass
+    if amount_msat == 0:
+        amount_msat = _parse_bolt11_msat(bolt11)
+
+    # Prefer the request's `e` tag for the zapped event (the receipt's is a
+    # copy but request-side is authoritative).
+    for t in req_tags:
+        if len(t) >= 2 and t[0] == "e":
+            zapped_event = t[1]
+            break
+
+    settled_unix = int(ev.get("created_at", 0) or 0)
+    settled_at = (
+        time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(settled_unix))
+        if settled_unix else ""
+    )
+    msg = (zap_req.get("content", "") or "").replace("\r\n", "\n").replace("\n", "\\n")
+
+    return {
+        "settled_at":      settled_at,
+        "zap_receipt_id":  ev.get("id", "") or "",
+        "zapped_event_id": zapped_event,
+        "sender_npub":     sender_npub,
+        "sender_name":     "",
+        "sats":            round(amount_msat / 1000) if amount_msat else 0,
+        "message":         msg,
+    }
+
+
+def run_zaps(state):
+    """Query LB's NIP-65 outbox relays for kind 9735 receipts addressed to LB.
+    Dedupes by receipt id across relays. Uses state['zap_since'] as the
+    incremental cursor (with a 3-day overlap to absorb late propagation).
+    Mutates state['zap_since'] to the newest receipt's created_at. Returns
+    the list of parsed zap rows."""
+    saved_since = int(state.get("zap_since") or 0)
+    overlap     = 3 * 24 * 3600  # seconds — 3-day relay-propagation buffer
+    since       = max(0, saved_since - overlap) if saved_since else 0
+
+    print(f"  Resolving LB outbox relays (NIP-65 kind 10002)...")
+    relays = get_outbox_relays(LB_HEX)
+    if not relays:
+        print(f"  [warn] no kind 10002 found for LB — falling back to NOSTR_RELAYS")
+        relays = list(NOSTR_RELAYS)
+    since_label = (
+        time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(since)) if since else "all history"
+    )
+    print(f"  Querying {len(relays)} relays for zap receipts since {since_label}...")
+
+    seen        = {}   # zap_receipt_id -> parsed row
+    newest_unix = saved_since
+    for relay in relays:
+        before = len(seen)
+        for ev in fetch_zap_receipts(relay, LB_HEX, since=since):
+            eid = ev.get("id") or ""
+            if not eid:
+                continue
+            ts = int(ev.get("created_at", 0) or 0)
+            if ts > newest_unix:
+                newest_unix = ts
+            if eid in seen:
+                continue
+            row = parse_zap_receipt(ev)
+            if row:
+                seen[eid] = row
+        print(f"    {relay[:48]:48s}  +{len(seen) - before:>4} new  (total: {len(seen)})")
+
+    state["zap_since"] = newest_unix
+    return list(seen.values())
+
+
+def write_zaps_csv(rows):
+    """Full rewrite of data/zaps.csv. Sorted by settled_at desc (then by
+    zap_receipt_id for stability)."""
+    ZAPS_CSV.parent.mkdir(parents=True, exist_ok=True)
+    sorted_rows = sorted(
+        rows,
+        key=lambda r: (r.get("settled_at") or "", r.get("zap_receipt_id") or ""),
+        reverse=True,
+    )
+    with ZAPS_CSV.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=ZAP_COLUMNS)
+        writer.writeheader()
+        writer.writerows(sorted_rows)
+
+
+def write_zaps_json():
+    """Mirror data/zaps.csv as data/zaps.json — same wrapper shape as
+    sats.json. Reads the CSV back for guaranteed match."""
+    rows = []
+    with ZAPS_CSV.open("r", newline="", encoding="utf-8") as f:
+        for raw in csv.DictReader(f):
+            row = {}
+            for col in ZAP_COLUMNS:
+                v = raw.get(col, "")
+                if v == "":
+                    row[col] = None
+                elif col == "sats":
+                    row[col] = int(v)
+                else:
+                    row[col] = v
+            rows.append(row)
+
+    generated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    body = (
+        "{\n"
+        f'  "generated_at": {json.dumps(generated_at)},\n'
+        '  "source": "zaps.csv",\n'
+        f'  "row_count": {len(rows)},\n'
+        '  "rows": [\n'
+        + ",\n".join("    " + json.dumps(r, ensure_ascii=False) for r in rows)
+        + "\n  ]\n}\n"
+    )
+    ZAPS_JSON.write_text(body, encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
 # git autopush
 # ---------------------------------------------------------------------------
 
@@ -1124,7 +1402,10 @@ def git_autopush():
     """Best-effort commit + push of the data CSVs. Failures log and return —
     the local CSVs are the source of truth; a missed push just means the next
     run picks up where this one left off."""
-    files = ["data/sats.csv", "data/sats.json", "data/fountain-api.csv"]
+    files = [
+        "data/sats.csv", "data/sats.json", "data/fountain-api.csv",
+        "data/zaps.csv", "data/zaps.json",
+    ]
     try:
         subprocess.run(
             ["git", "pull", "--rebase", "--autostash"],
@@ -1143,7 +1424,7 @@ def git_autopush():
             cwd=REPO_ROOT, check=True, capture_output=True,
         )
         subprocess.run(["git", "push"], cwd=REPO_ROOT, check=True, capture_output=True)
-        print("  [autopush] pushed sats.csv + sats.json + fountain-api.csv")
+        print("  [autopush] pushed sats.csv + sats.json + fountain-api.csv + zaps.csv + zaps.json")
     except subprocess.CalledProcessError as e:
         err = e.stderr.decode() if e.stderr else ""
         print(f"  [autopush] failed: {e}\n  {err}")
@@ -1177,7 +1458,7 @@ def main():
           f"{len(existing_rows) - len(existing_boost_rows)} stream rows dropped (will regen)\n")
 
     # ── Pass 1: Alby Hub — boost rows + raw non-Fountain stream txs ──
-    print("─── Pass 1/3: Alby Hub (boosts + non-Fountain stream txs) ───")
+    print("─── Pass 1/4: Alby Hub (boosts + non-Fountain stream txs) ───")
     (new_boost_rows, keysend_stream_txs, castamatic_stream_txs,
      newest_ts, sats_stats) = run_sats(config, state, existing_hashes)
     print()
@@ -1200,7 +1481,7 @@ def main():
 
     # ── Pass 2: non-Fountain streams (keysend + Castamatic) ──
     print()
-    print("─── Pass 2/3: non-Fountain streams (keysend + Castamatic) ───")
+    print("─── Pass 2/4: non-Fountain streams (keysend + Castamatic) ───")
     castamatic_cache = state.get("castamatic_cache", {})
     stream_recs = [classify_keysend_stream(tx) for tx in keysend_stream_txs]
     for tx in castamatic_stream_txs:
@@ -1214,10 +1495,16 @@ def main():
 
     # ── Pass 3: Fountain Firestore for stream aggregates + full ledger ──
     print()
-    print("─── Pass 3/3: Fountain Firestore (stream aggregates + full ledger) ───")
+    print("─── Pass 3/4: Fountain Firestore (stream aggregates + full ledger) ───")
     stream_rows, fountain_rows = run_supporters(all_boost_rows)
     print(f"\n  Fountain stream-aggregate rows (→sats.csv): {len(stream_rows)}")
     print(f"  Full supporter rows (→fountain-api.csv):    {len(fountain_rows)}")
+
+    # ── Pass 4: Nostr zap receipts to LB ──
+    print()
+    print("─── Pass 4/4: Nostr zap receipts (kind 9735 to LB) ───")
+    zap_rows = run_zaps(state)
+    print(f"\n  Zap rows (→zaps.csv): {len(zap_rows)}")
 
     # ── Combine ──
     all_rows = all_boost_rows + stream_rows + node_stream_rows
@@ -1262,6 +1549,9 @@ def main():
         print("\n[dry-run] First few Fountain stream rows:")
         for r in stream_rows[:3]:
             print(f"  {r}")
+        print("\n[dry-run] First few zap rows:")
+        for r in sorted(zap_rows, key=lambda x: x.get("settled_at",""), reverse=True)[:5]:
+            print(f"  {r}")
         print("\n[dry-run] not writing CSVs, not advancing state, not pushing.")
         return
 
@@ -1274,13 +1564,22 @@ def main():
     write_fountain_csv(fountain_rows)
     print(f"Wrote {len(fountain_rows)} rows → {FOUNTAIN_CSV}")
 
+    write_zaps_csv(zap_rows)
+    print(f"Wrote {len(zap_rows)} rows → {ZAPS_CSV}")
+
+    write_zaps_json()
+    print(f"Wrote {len(zap_rows)} rows → {ZAPS_JSON}")
+
     # Persist state: the Alby cursor (if it advanced) and the Castamatic
     # stream cache (which may have grown even when the cursor didn't).
     if newest_ts:
         state["last_processed"] = newest_ts
     save_state(state)
+    zs = state.get("zap_since")
+    zs_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(zs)) if zs else "never"
     print(f"State saved (cursor: {state.get('last_processed')}, "
-          f"castamatic cache: {len(state.get('castamatic_cache', {}))} entries)")
+          f"castamatic cache: {len(state.get('castamatic_cache', {}))} entries, "
+          f"zap cursor: {zs_iso})")
 
     if AUTOPUSH:
         print("\n─── git autopush ───")
