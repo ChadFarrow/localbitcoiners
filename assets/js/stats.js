@@ -47,6 +47,17 @@
     '9afc2918883d0b147906abff80d0d58b0e0ae6ba6a5f21907342f4772432e3ad': true,
   };
 
+  // Operating costs — billed monthly, dollar-denominated, converted to
+  // sats at the time of the bill. Split 50/50 between Reed and Rev:
+  // each host's bucket eats their half before any "profit" appears.
+  // Add a new entry each month after the bill clears.
+  var COSTS = [
+    { ms: Date.parse('2026-02-02T00:00:00Z'), dollars: 60, sats: 78027 }, // initial setup
+    { ms: Date.parse('2026-03-02T00:00:00Z'), dollars: 49, sats: 74500 },
+    { ms: Date.parse('2026-04-02T00:00:00Z'), dollars: 49, sats: 71940 },
+    { ms: Date.parse('2026-05-02T00:00:00Z'), dollars: 49, sats: 62633 },
+  ];
+
   var canvas = document.querySelector('[data-stats-canvas]');
   var subEl = document.querySelector('[data-stats-sub]');
   var boardCanvas = document.querySelector('[data-stats-leaderboard]');
@@ -54,7 +65,8 @@
   var peopleCanvas = document.querySelector('[data-stats-people]');
   var peopleSubEl = document.querySelector('[data-people-sub]');
   var preNostrCanvas = document.querySelector('[data-stats-prenostr]');
-  if (!canvas && !boardCanvas && !peopleCanvas && !preNostrCanvas) return;
+  var streamersCanvas = document.querySelector('[data-stats-streamers]');
+  if (!canvas && !boardCanvas && !peopleCanvas && !preNostrCanvas && !streamersCanvas) return;
 
   Promise.all([
     fetch(SATS_URL).then(function (r) { return r.ok ? r.json() : null; })
@@ -73,6 +85,7 @@
     render(rows, rssXml ? parseEpisodes(rssXml) : []);
     renderLeaderboard(rows);
     renderIdentityBoard(rows);
+    renderStreamerShoutout(rows);
     renderBigPreNostr(rows);
   });
 
@@ -82,6 +95,7 @@
     if (boardCanvas) boardCanvas.innerHTML = msg;
     if (peopleCanvas) peopleCanvas.innerHTML = msg;
     if (preNostrCanvas) preNostrCanvas.innerHTML = msg;
+    if (streamersCanvas) streamersCanvas.innerHTML = msg;
   }
 
   // ── RSS parsing — episode number + publish date for the markers ────
@@ -136,12 +150,25 @@
   // ── Sats-over-time chart ───────────────────────────────────────────
   function render(rows, episodes) {
     if (!canvas) return;
-    // Bucket every row's total_sats by UTC calendar day.
+    // Bucket every row's total_sats by UTC calendar day, plus the same
+    // breakdown into the 5 recipient buckets so the cumulative view can
+    // render them as stacked bands. Bucket sums equal total_sats on
+    // every row (other-agent guarantee), so the stack's top edge tracks
+    // the cumulative total line exactly.
     var byDay = Object.create(null);
+    var byDayBuckets = Object.create(null);
     var minMs = Infinity, maxMs = -Infinity;
     for (var i = 0; i < rows.length; i++) {
-      var dayMs = Math.floor(Date.parse(rows[i].settled_at) / DAY_MS) * DAY_MS;
-      byDay[dayMs] = (byDay[dayMs] || 0) + rows[i].total_sats;
+      var row = rows[i];
+      var dayMs = Math.floor(Date.parse(row.settled_at) / DAY_MS) * DAY_MS;
+      byDay[dayMs] = (byDay[dayMs] || 0) + row.total_sats;
+      var bkt = byDayBuckets[dayMs] || (byDayBuckets[dayMs] =
+        { reed: 0, rev: 0, guests: 0, aquafox: 0, fountain: 0 });
+      bkt.reed     += row.reed_sats     || 0;
+      bkt.rev      += row.rev_sats      || 0;
+      bkt.guests   += row.guests_sats   || 0;
+      bkt.aquafox  += row.aquafox_sats  || 0;
+      bkt.fountain += row.fountain_sats || 0;
       if (dayMs < minMs) minMs = dayMs;
       if (dayMs > maxMs) maxMs = dayMs;
     }
@@ -157,13 +184,41 @@
     var todayMs = Math.floor(Date.now() / DAY_MS) * DAY_MS;
     if (todayMs > maxMs) maxMs = todayMs;
 
-    // Daily + cumulative series across every day in [minMs, maxMs].
+    // Daily + cumulative series across every day in [minMs, maxMs],
+    // including each recipient bucket's running cumulative. Reed and
+    // Rev each eat half of the running operating cost from their bucket
+    // before anything counts as "profit"; the Costs band shows the sats
+    // actually consumed (capped by what each host has been paid). The
+    // sum of all six bands at every day still equals `cumulative`.
     var days = [];
     var run = 0;
+    var rReedRaw = 0, rRevRaw = 0, rGuests = 0, rAquafox = 0, rFountain = 0;
+    var costIdx = 0, cumCostSats = 0;
     for (var d = minMs; d <= maxMs; d += DAY_MS) {
       var v = byDay[d] || 0;
       run += v;
-      days.push({ ms: d, daily: v, cumulative: run });
+      var bktD = byDayBuckets[d];
+      if (bktD) {
+        rReedRaw  += bktD.reed;
+        rRevRaw   += bktD.rev;
+        rGuests   += bktD.guests;
+        rAquafox  += bktD.aquafox;
+        rFountain += bktD.fountain;
+      }
+      // Step costs forward through any bills whose date is now reached.
+      while (costIdx < COSTS.length && COSTS[costIdx].ms <= d) {
+        cumCostSats += COSTS[costIdx].sats;
+        costIdx++;
+      }
+      var costShare = cumCostSats / 2;
+      var reedNet = Math.max(0, rReedRaw - costShare);
+      var revNet  = Math.max(0, rRevRaw - costShare);
+      var costsActual = Math.min(rReedRaw, costShare) + Math.min(rRevRaw, costShare);
+      days.push({
+        ms: d, daily: v, cumulative: run,
+        reed: reedNet, rev: revNet, costs: costsActual,
+        guests: rGuests, aquafox: rAquafox, fountain: rFountain,
+      });
     }
     var grandTotal = run;
 
@@ -173,8 +228,14 @@
         ' since ' + fmtDate(minMs);
     }
 
+    var legendEl = document.querySelector('[data-stats-legend]');
     function draw(view) {
       canvas.innerHTML = buildSvg(days, episodes, view, minMs, maxMs);
+      // Legend describes the cumulative stack — irrelevant on daily.
+      if (legendEl) {
+        if (view === 'cumulative') legendEl.removeAttribute('hidden');
+        else legendEl.setAttribute('hidden', '');
+      }
     }
     draw('cumulative');
 
@@ -224,15 +285,68 @@
         (H - mB + 20) + '">' + months[mi].label + '</text>');
     }
 
-    // Data line + area fill.
-    var pts = [];
-    for (var dd = 0; dd < days.length; dd++) {
-      pts.push(x(days[dd].ms) + ',' + y(days[dd][key]));
+    if (view === 'cumulative') {
+      // Stacked per-bucket bands (bottom-up) with the total line on top
+      // for crisp definition. Each band tooltips the bucket's grand
+      // total. Bottom band's bottom edge is the x-axis; subsequent
+      // bands stack on top until the topmost band's top edge meets the
+      // cumulative line — same y-value at every day.
+      // Bottom-up. Costs anchors the bottom — the foundation that has
+      // to be paid before anything reaches the host bands above it.
+      var BUCKETS = [
+        { k: 'costs',    cls: 'stats-band-costs',    label: 'Costs' },
+        { k: 'fountain', cls: 'stats-band-fountain', label: 'Fountain' },
+        { k: 'aquafox',  cls: 'stats-band-adbudget', label: 'Ad Budget' },
+        { k: 'guests',   cls: 'stats-band-guests',   label: 'Guests' },
+        { k: 'reed',     cls: 'stats-band-reed',     label: 'Reed' },
+        { k: 'rev',      cls: 'stats-band-rev',      label: 'Rev' },
+      ];
+      var bottoms = new Array(days.length);
+      for (var bz = 0; bz < bottoms.length; bz++) bottoms[bz] = 0;
+      for (var bi = 0; bi < BUCKETS.length; bi++) {
+        var bk = BUCKETS[bi];
+        var bottomPath = [], topPath = [];
+        for (var d2 = 0; d2 < days.length; d2++) {
+          var bot = bottoms[d2];
+          var top = bot + days[d2][bk.k];
+          bottomPath.push(x(days[d2].ms) + ',' + y(bot));
+          topPath.push(x(days[d2].ms) + ',' + y(top));
+          bottoms[d2] = top;
+        }
+        var pathD = 'M' + bottomPath.join(' L') +
+          ' L' + topPath.reverse().join(' L') + ' Z';
+        var grand = days[days.length - 1][bk.k];
+        var tipText;
+        if (bk.k === 'costs') {
+          // Show what's been billed in dollars alongside the sat amount
+          // actually consumed (the band's height).
+          var totalDollars = 0;
+          for (var ci = 0; ci < COSTS.length; ci++) totalDollars += COSTS[ci].dollars;
+          tipText = bk.label + ' — $' + fmtSats(totalDollars) +
+            ' (' + fmtSats(grand) + ' sats)';
+        } else {
+          tipText = bk.label + ' — ' + fmtSats(grand) + ' sats';
+        }
+        parts.push('<path class="stats-chart-band ' + bk.cls + '" d="' + pathD +
+          '"><title>' + tipText + '</title></path>');
+      }
+      var ptsCum = [];
+      for (var dc = 0; dc < days.length; dc++) {
+        ptsCum.push(x(days[dc].ms) + ',' + y(days[dc].cumulative));
+      }
+      parts.push('<polyline class="stats-chart-line" points="' + ptsCum.join(' ') + '"/>');
+    } else {
+      // Daily view — single-color area + spiky line; dots are added
+      // further below.
+      var pts = [];
+      for (var dd = 0; dd < days.length; dd++) {
+        pts.push(x(days[dd].ms) + ',' + y(days[dd].daily));
+      }
+      var areaD = 'M' + x(days[0].ms) + ',' + y(0) + ' L' + pts.join(' L') +
+        ' L' + x(days[days.length - 1].ms) + ',' + y(0) + ' Z';
+      parts.push('<path class="stats-chart-area" d="' + areaD + '"/>');
+      parts.push('<polyline class="stats-chart-line" points="' + pts.join(' ') + '"/>');
     }
-    var areaD = 'M' + x(days[0].ms) + ',' + y(0) + ' L' + pts.join(' L') +
-      ' L' + x(days[days.length - 1].ms) + ',' + y(0) + ' Z';
-    parts.push('<path class="stats-chart-area" d="' + areaD + '"/>');
-    parts.push('<polyline class="stats-chart-line" points="' + pts.join(' ') + '"/>');
 
     // Episode publish markers — a wide, faint highlight band per release
     // plus an "Ep N" label; both brighten on hover (CSS, via the <g>
@@ -432,6 +546,19 @@
       return;
     }
 
+    // Sync pre-resolve labels from the localStorage cache so the
+    // initial bar-chart paint already shows display names. The async
+    // fetch below then only needs to update the few cache misses.
+    var preNpubs = [];
+    for (var pp = 0; pp < people.length; pp++) {
+      if (people[pp].npub) preNpubs.push(people[pp].npub);
+    }
+    var preCached = syncCachedProfiles(preNpubs);
+    for (var pq = 0; pq < people.length; pq++) {
+      var pc = people[pq].npub && preCached[people[pq].npub];
+      if (pc && pc.name) people[pq].label = pc.name;
+    }
+
     var fieldOf = { sats: 'sats', episodes: 'episodeCount' };
 
     function draw(metric) {
@@ -476,7 +603,13 @@
         var changed = false;
         for (var q = 0; q < people.length; q++) {
           var prof = people[q].npub && profiles[people[q].npub];
-          if (prof && prof.name) { people[q].label = prof.name; changed = true; }
+          // Only re-draw if the resolved name actually differs from the
+          // (possibly already-cached) current label — avoids a wasted
+          // full-SVG re-render when every name was a cache hit.
+          if (prof && prof.name && people[q].label !== prof.name) {
+            people[q].label = prof.name;
+            changed = true;
+          }
         }
         if (changed) {
           var checked = document.querySelector('input[name="stats-people-view"]:checked');
@@ -506,11 +639,19 @@
     }
     boosts.sort(function (a, b) { return b.total_sats - a.total_sats; });
 
+    // Sync pre-resolve from the localStorage cache so cached supporters
+    // render with their display names + avatars on the first paint.
+    var preNpubsBP = [];
+    for (var bi = 0; bi < boosts.length; bi++) {
+      if (boosts[bi].sender_npub) preNpubsBP.push(boosts[bi].sender_npub);
+    }
+    var cachedBP = syncCachedProfiles(preNpubsBP);
+
     var list = document.createElement('ul');
     list.className = 'ep-supporter-list';
     var npubEls = [];
     for (var i = 0; i < boosts.length; i++) {
-      var built = buildPreNostrRow(boosts[i]);
+      var built = buildPreNostrRow(boosts[i], cachedBP);
       list.appendChild(built.li);
       if (built.npubEl) npubEls.push(built.npubEl);
     }
@@ -543,7 +684,7 @@
     }
   }
 
-  function buildPreNostrRow(row) {
+  function buildPreNostrRow(row, cached) {
     var li = document.createElement('li');
     li.className = 'ep-supporter-row';
 
@@ -557,9 +698,15 @@
     avatar.setAttribute('aria-hidden', 'true');
     var name = document.createElement('span');
     name.className = 'ep-supporter-name';
-    if (row.sender_name) name.textContent = row.sender_name;
+    var cEntry = cached && row.sender_npub && cached[row.sender_npub];
+    if (cEntry && cEntry.name) name.textContent = cEntry.name;
+    else if (row.sender_name) name.textContent = row.sender_name;
     else if (row.sender_npub) name.textContent = shortNpub(row.sender_npub);
     else name.textContent = 'Anonymous';
+    if (cEntry && cEntry.picture) {
+      avatar.style.backgroundImage =
+        'url("' + cEntry.picture.replace(/"/g, '%22') + '")';
+    }
     ident.appendChild(avatar);
     ident.appendChild(name);
 
@@ -623,6 +770,140 @@
       .replace(/nostr:(?:note1|nevent1|naddr1)[a-z0-9]+/gi, '[note]');
   }
 
+  // ── Shoutout to the Streamers — all-time totals per supporter ──────
+  // Aggregates every stream row across every episode by identity (npub
+  // > display name > each truly-anon row its own). Hosts excluded for
+  // the same reason as the supporter leaderboard. Sorted largest-first
+  // and rendered as the same mini-cards the episode pages use.
+  function renderStreamerShoutout(rows) {
+    if (!streamersCanvas) return;
+
+    var byId = Object.create(null);
+    var anonIdx = 0;
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      if (row.kind !== 'stream') continue;
+      if (row.sender_npub && HOST_NPUBS[row.sender_npub]) continue;
+      var npub = row.sender_npub || '';
+      var key = npub || row.sender_name || ('__anon__' + (anonIdx++));
+      var rec = byId[key] || (byId[key] = {
+        npub: npub,
+        label: row.sender_name || (npub ? shortNpub(npub) : 'Anonymous'),
+        sats: 0,
+        appBySats: Object.create(null),
+      });
+      rec.sats += row.total_sats;
+      if (row.app) rec.appBySats[row.app] = (rec.appBySats[row.app] || 0) + row.total_sats;
+    }
+
+    var streamers = [];
+    for (var k in byId) {
+      var s = byId[k];
+      // Pick the supporter's most-used app (by sats) as the badge.
+      var topApp = '', topAppSats = 0;
+      for (var a in s.appBySats) {
+        if (s.appBySats[a] > topAppSats) { topAppSats = s.appBySats[a]; topApp = a; }
+      }
+      s.app = topApp;
+      streamers.push(s);
+    }
+    if (!streamers.length) {
+      streamersCanvas.innerHTML = '<p class="stats-error">No streams yet.</p>';
+      return;
+    }
+    streamers.sort(function (a, b) { return b.sats - a.sats; });
+
+    // Sync pre-resolve from cache so the first paint already shows
+    // names + avatars for known supporters.
+    var preNpubsSO = [];
+    for (var sn = 0; sn < streamers.length; sn++) {
+      if (streamers[sn].npub) preNpubsSO.push(streamers[sn].npub);
+    }
+    var cachedSO = syncCachedProfiles(preNpubsSO);
+
+    var list = document.createElement('ul');
+    list.className = 'ep-supporter-list';
+    var npubEls = [];
+    for (var j = 0; j < streamers.length; j++) {
+      var built = buildShoutoutRow(streamers[j], cachedSO);
+      list.appendChild(built.li);
+      if (built.npubEl) npubEls.push(built.npubEl);
+    }
+    streamersCanvas.innerHTML = '';
+    streamersCanvas.appendChild(list);
+
+    // Resolve npub → display name + avatar via the shared relay helper.
+    var npubs = [], seen = Object.create(null);
+    for (var n = 0; n < npubEls.length; n++) {
+      if (!seen[npubEls[n].npub]) {
+        seen[npubEls[n].npub] = 1;
+        npubs.push(npubEls[n].npub);
+      }
+    }
+    if (npubs.length && window.LBEpisodeEnhance &&
+        typeof window.LBEpisodeEnhance.fetchProfilesByNpub === 'function') {
+      window.LBEpisodeEnhance.fetchProfilesByNpub(npubs).then(function (profiles) {
+        for (var m = 0; m < npubEls.length; m++) {
+          var prof = profiles[npubEls[m].npub];
+          if (!prof) continue;
+          if (prof.name) npubEls[m].nameEl.textContent = prof.name;
+          if (prof.picture) {
+            npubEls[m].avatarEl.style.backgroundImage =
+              'url("' + prof.picture.replace(/"/g, '%22') + '")';
+          }
+        }
+      }).catch(function () {});
+    }
+  }
+
+  function buildShoutoutRow(s, cached) {
+    var li = document.createElement('li');
+    li.className = 'ep-supporter-row';
+
+    var head = document.createElement('div');
+    head.className = 'ep-supporter-head';
+
+    var ident = document.createElement('span');
+    ident.className = 'ep-supporter-identity';
+    var avatar = document.createElement('span');
+    avatar.className = 'ep-supporter-avatar';
+    avatar.setAttribute('aria-hidden', 'true');
+    var name = document.createElement('span');
+    name.className = 'ep-supporter-name';
+    var cEntry = cached && s.npub && cached[s.npub];
+    name.textContent = (cEntry && cEntry.name) ? cEntry.name : s.label;
+    if (cEntry && cEntry.picture) {
+      avatar.style.backgroundImage =
+        'url("' + cEntry.picture.replace(/"/g, '%22') + '")';
+    }
+    ident.appendChild(avatar);
+    ident.appendChild(name);
+
+    var npubEl = null;
+    if (s.npub) {
+      ident.setAttribute('data-npub', s.npub);
+      npubEl = { npub: s.npub, nameEl: name, avatarEl: avatar };
+    }
+
+    var meta = document.createElement('span');
+    meta.className = 'ep-supporter-meta';
+    var sats = document.createElement('span');
+    sats.className = 'ep-supporter-sats';
+    sats.textContent = fmtSats(s.sats) + ' sats';
+    meta.appendChild(sats);
+    if (s.app) {
+      var app = document.createElement('span');
+      app.className = 'ep-supporter-app';
+      app.textContent = s.app;
+      meta.appendChild(app);
+    }
+
+    head.appendChild(ident);
+    head.appendChild(meta);
+    li.appendChild(head);
+    return { li: li, npubEl: npubEl };
+  }
+
   // ── Helpers ────────────────────────────────────────────────────────
   function fmtDate(ms) {
     try {
@@ -656,6 +937,20 @@
 
   function shortNpub(npub) {
     return npub.length > 20 ? npub.slice(0, 12) + '…' + npub.slice(-6) : npub;
+  }
+
+  // Sync read of the localStorage profile cache populated by
+  // episode-enhance.js. Used to fill in display names + avatars BEFORE
+  // the initial paint, so cached supporters never flash as truncated
+  // npubs (the supporter leaderboard's full SVG re-render in particular
+  // made that flash painfully obvious).
+  function syncCachedProfiles(npubs) {
+    if (!npubs || !npubs.length) return Object.create(null);
+    if (!window.LBEpisodeEnhance ||
+        typeof window.LBEpisodeEnhance.getCachedProfilesByNpub !== 'function') {
+      return Object.create(null);
+    }
+    return window.LBEpisodeEnhance.getCachedProfilesByNpub(npubs);
   }
 
   function truncate(s, n) {

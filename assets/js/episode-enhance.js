@@ -341,36 +341,190 @@
   }
 
   // ── Shared profile resolver ─────────────────────────────────────
-  // Exposed for other episode-page modules (ep-sats.js's pre-Nostr
-  // boost list) that need npub → display name/avatar without
-  // re-implementing bech32 decode + relay querying. Returns a plain
-  // object keyed by the input npub strings; npubs with no resolvable
-  // kind-0 are simply absent from the result.
-  function fetchProfilesByNpub(npubs) {
-    var hexByNpub = Object.create(null);
-    var hexes = [];
-    for (var i = 0; i < npubs.length; i++) {
-      var npub = npubs[i];
-      if (hexByNpub[npub]) continue;
-      var hex = npubToHex(npub);
-      if (!hex) continue;
-      hexByNpub[npub] = hex;
-      hexes.push(hex);
-    }
-    if (!hexes.length) return Promise.resolve(Object.create(null));
-    return fetchProfiles(hexes).then(function (best) {
+  // Exposed for other episode-page modules (ep-sats.js, stats.js) that
+  // need npub → display name/avatar without re-implementing bech32 +
+  // relay querying. Returns a plain object keyed by the input npub
+  // strings; npubs with no resolvable kind-0 are simply absent.
+  //
+  // Resolution path: localStorage cache → Primal cache → relay fan-out.
+  // The local cache makes repeat page loads render names instantly even
+  // when the network arm fails; Primal's cache resolves nearly any
+  // npub in one round-trip and is much more reliable than the 3-relay
+  // race the original implementation used.
+  var PROFILE_CACHE_KEY = 'lb_profile_cache_v1';
+  var PROFILE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+  var PRIMAL_WS_URL = 'wss://cache1.primal.net/v1';
+  var PRIMAL_TIMEOUT_MS = 6000;
+
+  function loadProfileCache() {
+    try {
+      var raw = localStorage.getItem(PROFILE_CACHE_KEY);
+      if (!raw) return Object.create(null);
+      var data = JSON.parse(raw);
+      if (!data || typeof data !== 'object') return Object.create(null);
+      var now = Date.now();
       var out = Object.create(null);
-      for (var key in hexByNpub) {
-        var entry = best[hexByNpub[key]];
-        if (!entry) continue;
-        out[key] = {
-          name: pickName(entry.meta),
-          picture: safeImageUrl(entry.meta && entry.meta.picture),
-        };
+      for (var npub in data) {
+        var e = data[npub];
+        if (e && typeof e.cachedAt === 'number' &&
+            now - e.cachedAt < PROFILE_CACHE_TTL_MS) {
+          out[npub] = e;
+        }
       }
       return out;
+    } catch (e) { return Object.create(null); }
+  }
+
+  function saveProfileCache(cache) {
+    try { localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(cache)); }
+    catch (e) {}
+  }
+
+  // Primal exposes a `user_infos` cache op that returns kind-0 events
+  // for an arbitrary list of pubkeys in one round-trip. Returns
+  // { hex: { ev } } for every pubkey Primal had a profile for.
+  function fetchProfilesFromPrimal(pubkeyHexes) {
+    return new Promise(function (resolve) {
+      if (!pubkeyHexes.length) return resolve(Object.create(null));
+      var settled = false;
+      var events = [];
+      var subId = 'lbp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+      var ws;
+      var timer = setTimeout(function () { finish(); }, PRIMAL_TIMEOUT_MS);
+      function finish() {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try { ws && ws.close(); } catch (e) {}
+        var byHex = Object.create(null);
+        for (var i = 0; i < events.length; i++) {
+          var ev = events[i];
+          if (!ev || ev.kind !== 0) continue;
+          var prev = byHex[ev.pubkey];
+          var ts = ev.created_at | 0;
+          if (!prev || ts > prev.created_at) {
+            byHex[ev.pubkey] = { created_at: ts, ev: ev };
+          }
+        }
+        resolve(byHex);
+      }
+      try { ws = new WebSocket(PRIMAL_WS_URL); }
+      catch (e) { return finish(); }
+      ws.onopen = function () {
+        try {
+          ws.send(JSON.stringify(['REQ', subId, {
+            cache: ['user_infos', { pubkeys: pubkeyHexes }],
+          }]));
+        } catch (e) { finish(); }
+      };
+      ws.onmessage = function (e) {
+        var msg; try { msg = JSON.parse(e.data); } catch (err) { return; }
+        if (!Array.isArray(msg)) return;
+        if (msg[0] === 'EVENT' && msg[2]) events.push(msg[2]);
+        else if (msg[0] === 'EOSE') finish();
+      };
+      ws.onerror = function () { finish(); };
+      ws.onclose = function () { if (!settled) finish(); };
     });
   }
 
-  window.LBEpisodeEnhance = { fetchProfilesByNpub: fetchProfilesByNpub };
+  function fetchProfilesByNpub(npubs) {
+    var hexByNpub = Object.create(null);
+    var npubByHex = Object.create(null);
+    var hexes = [];
+    for (var i = 0; i < npubs.length; i++) {
+      var np = npubs[i];
+      if (hexByNpub[np]) continue;
+      var hex = npubToHex(np);
+      if (!hex) continue;
+      hexByNpub[np] = hex;
+      npubByHex[hex] = np;
+      hexes.push(hex);
+    }
+    if (!hexes.length) return Promise.resolve(Object.create(null));
+
+    var cache = loadProfileCache();
+    var out = Object.create(null);
+    var pendingHexes = [];
+    for (var np2 in hexByNpub) {
+      var cached = cache[np2];
+      if (cached && (cached.name || cached.picture)) {
+        out[np2] = { name: cached.name || null, picture: cached.picture || null };
+      } else {
+        pendingHexes.push(hexByNpub[np2]);
+      }
+    }
+    if (!pendingHexes.length) return Promise.resolve(out);
+
+    return fetchProfilesFromPrimal(pendingHexes).then(function (primalBest) {
+      var stillMissing = [];
+      for (var ph = 0; ph < pendingHexes.length; ph++) {
+        var hex2 = pendingHexes[ph];
+        var np3 = npubByHex[hex2];
+        var entry = primalBest[hex2];
+        if (entry && entry.ev) {
+          var meta = parseProfileMeta(entry.ev);
+          out[np3] = {
+            name: pickName(meta),
+            picture: safeImageUrl(meta && meta.picture),
+          };
+          cache[np3] = {
+            name: out[np3].name, picture: out[np3].picture,
+            cachedAt: Date.now(),
+          };
+        } else {
+          stillMissing.push(hex2);
+        }
+      }
+      if (!stillMissing.length) {
+        saveProfileCache(cache);
+        return out;
+      }
+      // Anything Primal didn't have — fall back to the relay race.
+      return fetchProfiles(stillMissing).then(function (relayBest) {
+        for (var rh = 0; rh < stillMissing.length; rh++) {
+          var rHex = stillMissing[rh];
+          var rNp = npubByHex[rHex];
+          var rEntry = relayBest[rHex];
+          if (!rEntry) continue;
+          out[rNp] = {
+            name: pickName(rEntry.meta),
+            picture: safeImageUrl(rEntry.meta && rEntry.meta.picture),
+          };
+          cache[rNp] = {
+            name: out[rNp].name, picture: out[rNp].picture,
+            cachedAt: Date.now(),
+          };
+        }
+        saveProfileCache(cache);
+        return out;
+      });
+    });
+  }
+
+  function parseProfileMeta(ev) {
+    try { return JSON.parse(ev.content); } catch (e) { return null; }
+  }
+
+  // Sync lookup into the same localStorage cache fetchProfilesByNpub
+  // populates. Lets callers (the supporter leaderboard, streamers, etc.)
+  // render with the right names on the FIRST paint instead of flashing
+  // a truncated npub and re-rendering once the promise resolves.
+  function getCachedProfilesByNpub(npubs) {
+    var cache = loadProfileCache();
+    var out = Object.create(null);
+    for (var i = 0; i < npubs.length; i++) {
+      var n = npubs[i];
+      var entry = cache[n];
+      if (entry && (entry.name || entry.picture)) {
+        out[n] = { name: entry.name || null, picture: entry.picture || null };
+      }
+    }
+    return out;
+  }
+
+  window.LBEpisodeEnhance = {
+    fetchProfilesByNpub: fetchProfilesByNpub,
+    getCachedProfilesByNpub: getCachedProfilesByNpub,
+  };
 })();

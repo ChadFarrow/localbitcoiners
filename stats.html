@@ -89,6 +89,14 @@
       --muted:   #6b5a3e;
       --border:  #d4c4a0;
       --white:   #fffdf7;
+
+      /* Recipient-bucket palette for the cumulative stacked-area chart. */
+      --bucket-reed:     #f7931a;  /* matches --orange */
+      --bucket-rev:      #15803d;  /* forest green */
+      --bucket-guests:   #14b8a6;  /* teal */
+      --bucket-adbudget: #8b5cf6;  /* purple */
+      --bucket-fountain: #eab308;  /* gold */
+      --bucket-costs:    #64748b;  /* slate — neutral, reads as "expense" */
     }
 
     html { scroll-behavior: smooth; }
@@ -334,6 +342,48 @@
       stroke-linejoin: round;
       stroke-linecap: round;
     }
+
+    /* Recipient-bucket bands stacked under the cumulative line. Each
+       band brightens on hover so the tooltip (bucket grand total) has a
+       visible focal column. */
+    .stats-chart-band {
+      fill-opacity: 0.55;
+      stroke-width: 0.5;
+      stroke-opacity: 0.7;
+      transition: fill-opacity 0.12s ease;
+    }
+    .stats-chart-band:hover { fill-opacity: 0.85; }
+    .stats-band-reed     { fill: var(--bucket-reed);     stroke: var(--bucket-reed); }
+    .stats-band-rev      { fill: var(--bucket-rev);      stroke: var(--bucket-rev); }
+    .stats-band-guests   { fill: var(--bucket-guests);   stroke: var(--bucket-guests); }
+    .stats-band-adbudget { fill: var(--bucket-adbudget); stroke: var(--bucket-adbudget); }
+    .stats-band-fountain { fill: var(--bucket-fountain); stroke: var(--bucket-fountain); }
+    .stats-band-costs    { fill: var(--bucket-costs);    stroke: var(--bucket-costs); }
+
+    .stats-chart-legend-list {
+      list-style: none;
+      margin: 0.7rem 0 0;
+      padding: 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem 0.85rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .stats-chart-legend-list[hidden] { display: none; }
+    .stats-chart-legend-list li {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .stats-legend-swatch {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      background: var(--c, var(--cream-d));
+      border: 1px solid rgba(0, 0, 0, 0.08);
+    }
     .stats-chart-epband {
       fill: var(--navy-l);
       fill-opacity: 0.1;
@@ -435,6 +485,22 @@
     /* Biggest Boosts feed — note cards come from boosts-thread.css;
        just space the top-level boost entries apart. */
     .stats-boost-feed .note-list > li + li { margin-top: 0.6rem; }
+
+    /* Streamers shoutout: collapse per-row cards into one compact list
+       inside the outer canvas card. Scoped so the Pre-Nostr section
+       keeps its individual mini-cards. */
+    [data-stats-streamers] .ep-supporter-list { gap: 0; }
+    [data-stats-streamers] .ep-supporter-row {
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      padding: 0.4rem 0.4rem;
+    }
+    [data-stats-streamers] .ep-supporter-row + .ep-supporter-row {
+      border-top: 1px solid var(--border);
+    }
+    [data-stats-streamers] .ep-supporter-avatar { width: 24px; height: 24px; }
+    [data-stats-streamers] .ep-supporter-name { font-size: 0.92rem; }
     /* ── Footer (mirrors index.html) ── */
     footer {
       background: #12253f;
@@ -538,6 +604,16 @@
     </div>
   </div>
 
+  <!-- Order mirrors the stacked bands top→bottom (left = top of stack). -->
+  <ul class="stats-chart-legend-list" data-stats-legend>
+    <li><span class="stats-legend-swatch" style="--c: var(--bucket-rev);"></span>Rev</li>
+    <li><span class="stats-legend-swatch" style="--c: var(--bucket-reed);"></span>Reed</li>
+    <li><span class="stats-legend-swatch" style="--c: var(--bucket-guests);"></span>Guests</li>
+    <li><span class="stats-legend-swatch" style="--c: var(--bucket-adbudget);"></span>Ad Budget</li>
+    <li><span class="stats-legend-swatch" style="--c: var(--bucket-fountain);"></span>Fountain</li>
+    <li><span class="stats-legend-swatch" style="--c: var(--bucket-costs);"></span>Costs</li>
+  </ul>
+
 </section>
 
 <!-- ══════════════════════════════ EPISODE LEADERBOARD ══════════════════════════════ -->
@@ -580,6 +656,18 @@
     <div class="stats-loading">
       <div class="loading-spinner"></div><br />
       Loading supporter stats…
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════ SHOUTOUT TO THE STREAMERS ══════════════════════════════ -->
+<section class="section-wide">
+  <h2 class="stats-chart-heading">Shoutout to the Streamers</h2>
+  <p class="stats-chart-sub">All-time sats streamed per supporter, across every episode</p>
+  <div class="stats-chart-canvas" data-stats-streamers>
+    <div class="stats-loading">
+      <div class="loading-spinner"></div><br />
+      Loading streamers…
     </div>
   </div>
 </section>

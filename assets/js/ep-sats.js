@@ -233,12 +233,25 @@
     sub.className = 'ep-supporter-sub';
     sub.textContent = subText;
 
+    // Sync pre-resolve from the localStorage profile cache so cached
+    // supporters render with their display name + avatar on the first
+    // paint. The async enhanceSupporterNpubs below then only updates
+    // the few cache misses.
+    var preNpubs = [];
+    for (var ii = 0; ii < items.length; ii++) {
+      if (items[ii].sender_npub) preNpubs.push(items[ii].sender_npub);
+    }
+    var preCached = (window.LBEpisodeEnhance &&
+      typeof window.LBEpisodeEnhance.getCachedProfilesByNpub === 'function')
+      ? window.LBEpisodeEnhance.getCachedProfilesByNpub(preNpubs)
+      : Object.create(null);
+
     var list = document.createElement('ul');
     list.className = 'ep-supporter-list';
 
     var npubEls = [];
     for (var i = 0; i < items.length; i++) {
-      var built = buildSupporterRow(items[i], withMessage);
+      var built = buildSupporterRow(items[i], withMessage, preCached);
       list.appendChild(built.li);
       if (built.npubEl) npubEls.push(built.npubEl);
     }
@@ -251,7 +264,7 @@
     return npubEls;
   }
 
-  function buildSupporterRow(row, withMessage) {
+  function buildSupporterRow(row, withMessage, cached) {
     var li = document.createElement('li');
     li.className = 'ep-supporter-row';
 
@@ -265,12 +278,19 @@
     avatar.setAttribute('aria-hidden', 'true');
     var name = document.createElement('span');
     name.className = 'ep-supporter-name';
-    if (row.sender_name) {
+    var cEntry = cached && row.sender_npub && cached[row.sender_npub];
+    if (cEntry && cEntry.name) {
+      name.textContent = cEntry.name;
+    } else if (row.sender_name) {
       name.textContent = row.sender_name;
     } else if (row.sender_npub) {
       name.textContent = shortNpub(row.sender_npub);
     } else {
       name.textContent = 'Anonymous';
+    }
+    if (cEntry && cEntry.picture) {
+      avatar.style.backgroundImage =
+        'url("' + cEntry.picture.replace(/"/g, '%22') + '")';
     }
     ident.appendChild(avatar);
     ident.appendChild(name);
