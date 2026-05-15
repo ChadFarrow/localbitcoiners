@@ -804,7 +804,7 @@
       if (boardSubEl) {
         boardSubEl.textContent = metric === 'sats'
           ? 'Top ' + sorted.length + ' episodes by total sats received (boosts + streams)'
-          : 'Top ' + sorted.length + ' episodes by unique supporters';
+          : 'Top ' + sorted.length + ' episodes by unique supporters (boosts + streams)';
       }
     }
     draw('sats');
@@ -925,10 +925,9 @@
         ? 'Supporters ranked by total sats sent'
         : 'Supporters ranked by episodes supported');
       if (peopleSubEl) {
-        peopleSubEl.textContent = (metric === 'sats'
-          ? 'Top 10 supporters by total sats sent'
-          : 'Top 10 supporters by episodes supported') +
-          ' — plus every anonymous payment, bucketed at the bottom';
+        peopleSubEl.textContent = metric === 'sats'
+          ? 'Top 10 supporters by total sats sent (boosts + streams)'
+          : 'Top 10 supporters by episodes supported (boosts + streams)';
       }
     }
     draw('sats');

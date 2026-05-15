@@ -257,6 +257,12 @@
       color: var(--cream);
       font-style: italic;
     }
+    .page-header-note {
+      margin: 0.5rem auto 0;
+      font-size: 0.82rem;
+      color: var(--cream);
+      opacity: 0.75;
+    }
 
     /* ── Section wrapper ── */
     .section-wide {
@@ -646,12 +652,16 @@
 <!-- ══════════════════════════════ PAGE HEADER ══════════════════════════════ -->
 <section class="page-header">
   <h1>Podcast Stats</h1>
-  <p>A look at the numbers behind the show — powered by every boost, stream, and donation listeners have sent.</p>
+  <p>
+    Local Bitcoiners is Powered Exclusively by Podcasting 2.0 Boosts &amp; Streams<br />
+    Thank You to All of our Supporters!
+  </p>
+  <p class="page-header-note">(this page is updated daily)</p>
 </section>
 
 <!-- ══════════════════════════════ SATS OVER TIME ══════════════════════════════ -->
 <section class="section-wide">
-  <h2 class="stats-chart-heading">Sats Over Time</h2>
+  <h2 class="stats-chart-heading">Podcast Value Details</h2>
   <p class="stats-chart-sub" data-stats-sub>Loading…</p>
 
   <div class="stats-chart-controls" role="radiogroup" aria-label="Chart view">
@@ -752,8 +762,8 @@
 
 <!-- ══════════════════════════════ BIGGEST BOOSTS ══════════════════════════════ -->
 <section class="section-wide stats-boost-feed">
-  <h2 class="stats-chart-heading">Biggest Boosts</h2>
-  <p class="stats-chart-sub">Every 10,000+ sat boost on Nostr, largest first</p>
+  <h2 class="stats-chart-heading">Biggest Boosts - Notes</h2>
+  <p class="stats-chart-sub">Every 10,000+ sat Nostr Boost Bot Note, largest first</p>
   <div data-stats-boosts>
     <div class="stats-loading">
       <div class="loading-spinner"></div><br />
@@ -765,7 +775,7 @@
 <!-- ══════════════════════════════ BIGGEST PRE-NOSTR BOOSTS ══════════════════════════════ -->
 <section class="section-wide">
   <h2 class="stats-chart-heading">Biggest Pre-Nostr Boosts</h2>
-  <p class="stats-chart-sub">10,000+ sat boosts from before the show published to Nostr, largest first</p>
+  <p class="stats-chart-sub">Every 10,000+ sat Boost from before the Nostr Boost Bot Existed, largest first</p>
   <div data-stats-prenostr>
     <div class="stats-loading">
       <div class="loading-spinner"></div><br />
