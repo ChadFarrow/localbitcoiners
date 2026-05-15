@@ -163,6 +163,8 @@
     // the cumulative total line exactly.
     var byDay = Object.create(null);
     var byDayBuckets = Object.create(null);
+    var byDayApps = Object.create(null);   // dayMs -> { appName: sats }
+    var seenApps = Object.create(null);
     var minMs = Infinity, maxMs = -Infinity;
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
@@ -175,6 +177,10 @@
       bkt.guests   += row.guests_sats   || 0;
       bkt.aquafox  += row.aquafox_sats  || 0;
       bkt.fountain += row.fountain_sats || 0;
+      var app = row.app || 'Other';
+      seenApps[app] = true;
+      var appBkt = byDayApps[dayMs] || (byDayApps[dayMs] = Object.create(null));
+      appBkt[app] = (appBkt[app] || 0) + row.total_sats;
       if (dayMs < minMs) minMs = dayMs;
       if (dayMs > maxMs) maxMs = dayMs;
     }
@@ -200,6 +206,7 @@
     var run = 0;
     var rReedRaw = 0, rRevRaw = 0, rGuests = 0, rAquafox = 0, rFountain = 0;
     var costIdx = 0, cumCostSats = 0;
+    var rApps = Object.create(null);  // running per-app cumulative
     for (var d = minMs; d <= maxMs; d += DAY_MS) {
       var v = byDay[d] || 0;
       run += v;
@@ -211,6 +218,12 @@
         rAquafox  += bktD.aquafox;
         rFountain += bktD.fountain;
       }
+      var appBktD = byDayApps[d];
+      if (appBktD) {
+        for (var aname in appBktD) {
+          rApps[aname] = (rApps[aname] || 0) + appBktD[aname];
+        }
+      }
       // Step costs forward through any bills whose date is now reached.
       while (costIdx < COSTS.length && COSTS[costIdx].ms <= d) {
         cumCostSats += COSTS[costIdx].sats;
@@ -220,10 +233,14 @@
       var reedNet = Math.max(0, rReedRaw - costShare);
       var revNet  = Math.max(0, rRevRaw - costShare);
       var costsActual = Math.min(rReedRaw, costShare) + Math.min(rRevRaw, costShare);
+      // Snapshot the running per-app cumulative for the apps view.
+      var appsSnap = Object.create(null);
+      for (var sName in seenApps) appsSnap[sName] = rApps[sName] || 0;
       days.push({
         ms: d, daily: v, cumulative: run,
         reed: reedNet, rev: revNet, costs: costsActual,
         guests: rGuests, aquafox: rAquafox, fountain: rFountain,
+        apps: appsSnap,
       });
     }
     var grandTotal = run;
@@ -235,15 +252,20 @@
     }
 
     var legendEl = document.querySelector('[data-stats-legend]');
+    var legendAppsEl = document.querySelector('[data-stats-legend-apps]');
     function draw(view) {
       canvas.innerHTML = buildSvg(days, episodes, view, minMs, maxMs);
-      // Legend describes the cumulative stack — irrelevant on daily.
+      // Show the matching legend per view; both hidden on daily.
       if (legendEl) {
-        if (view === 'cumulative') legendEl.removeAttribute('hidden');
+        if (view === 'splits') legendEl.removeAttribute('hidden');
         else legendEl.setAttribute('hidden', '');
       }
+      if (legendAppsEl) {
+        if (view === 'apps') legendAppsEl.removeAttribute('hidden');
+        else legendAppsEl.setAttribute('hidden', '');
+      }
     }
-    draw('cumulative');
+    draw('splits');
 
     var radios = document.querySelectorAll('input[name="stats-chart-view"]');
     for (var r = 0; r < radios.length; r++) {
@@ -259,6 +281,8 @@
     var mL = 64, mR = 20, mT = 30, mB = 44;
     var pw = W - mL - mR, ph = H - mT - mB;
     var spanMs = Math.max(maxMs - minMs, DAY_MS);
+    // Both stacked views (splits + apps) sum to the cumulative line, so
+    // they share its y-axis; daily has its own (smaller) per-day max.
     var key = view === 'daily' ? 'daily' : 'cumulative';
 
     var yMax = 0;
@@ -291,22 +315,48 @@
         (H - mB + 20) + '">' + months[mi].label + '</text>');
     }
 
-    if (view === 'cumulative') {
-      // Stacked per-bucket bands (bottom-up) with the total line on top
-      // for crisp definition. Each band tooltips the bucket's grand
-      // total. Bottom band's bottom edge is the x-axis; subsequent
-      // bands stack on top until the topmost band's top edge meets the
-      // cumulative line — same y-value at every day.
-      // Bottom-up. Costs anchors the bottom — the foundation that has
-      // to be paid before anything reaches the host bands above it.
-      var BUCKETS = [
-        { k: 'costs',    cls: 'stats-band-costs',    label: 'Costs' },
-        { k: 'fountain', cls: 'stats-band-fountain', label: 'Fountain' },
-        { k: 'aquafox',  cls: 'stats-band-adbudget', label: 'Ad Budget' },
-        { k: 'guests',   cls: 'stats-band-guests',   label: 'Guests' },
-        { k: 'reed',     cls: 'stats-band-reed',     label: 'Reed' },
-        { k: 'rev',      cls: 'stats-band-rev',      label: 'Rev' },
-      ];
+    if (view === 'splits' || view === 'apps') {
+      // Stacked cumulative bands. Two flavors share the same algorithm:
+      //   splits — recipient breakdown (Costs/Fountain/AdBudget/Guests/
+      //            Reed/Rev), bottom-up.
+      //   apps   — boost/stream source breakdown, ordered smallest at
+      //            the bottom up to biggest, derived from days[].apps.
+      // Each band sums into the cumulative total; the orange total line
+      // draws on top for crisp definition.
+      var BUCKETS;
+      if (view === 'splits') {
+        BUCKETS = [
+          { k: 'costs',    cls: 'stats-band-costs',    label: 'Costs' },
+          { k: 'fountain', cls: 'stats-band-fountain', label: 'Fountain' },
+          { k: 'aquafox',  cls: 'stats-band-adbudget', label: 'Ad Budget' },
+          { k: 'guests',   cls: 'stats-band-guests',   label: 'Guests' },
+          { k: 'reed',     cls: 'stats-band-reed',     label: 'Reed' },
+          { k: 'rev',      cls: 'stats-band-rev',      label: 'Rev' },
+        ];
+      } else {
+        // Discover apps from the final day's snapshot. Fountain anchors
+        // the bottom (it's so dominant that putting it on top buries
+        // the smaller apps); the rest sort ascending by total so the
+        // tiniest sliver sits just above Fountain and the biggest non-
+        // Fountain app crowns the stack against the cumulative line.
+        var lastApps = days[days.length - 1].apps || {};
+        var appNames = Object.keys(lastApps);
+        appNames.sort(function (a, b) {
+          if (a === 'Fountain' && b !== 'Fountain') return -1;
+          if (b === 'Fountain' && a !== 'Fountain') return 1;
+          return lastApps[a] - lastApps[b];
+        });
+        BUCKETS = [];
+        for (var an = 0; an < appNames.length; an++) {
+          BUCKETS.push({
+            k: '__app__' + appNames[an],   // sentinel so getter knows to look in .apps
+            app: appNames[an],
+            cls: appBandCls(appNames[an]),
+            label: appNames[an],
+          });
+        }
+      }
+
       var bottoms = new Array(days.length);
       for (var bz = 0; bz < bottoms.length; bz++) bottoms[bz] = 0;
       for (var bi = 0; bi < BUCKETS.length; bi++) {
@@ -314,14 +364,19 @@
         var bottomPath = [], topPath = [];
         for (var d2 = 0; d2 < days.length; d2++) {
           var bot = bottoms[d2];
-          var top = bot + days[d2][bk.k];
+          var add = bk.app
+            ? ((days[d2].apps && days[d2].apps[bk.app]) || 0)
+            : days[d2][bk.k];
+          var top = bot + add;
           bottomPath.push(x(days[d2].ms) + ',' + y(bot));
           topPath.push(x(days[d2].ms) + ',' + y(top));
           bottoms[d2] = top;
         }
         var pathD = 'M' + bottomPath.join(' L') +
           ' L' + topPath.reverse().join(' L') + ' Z';
-        var grand = days[days.length - 1][bk.k];
+        var grand = bk.app
+          ? ((days[days.length - 1].apps && days[days.length - 1].apps[bk.app]) || 0)
+          : days[days.length - 1][bk.k];
         var tipText;
         if (bk.k === 'costs') {
           // Show what's been billed in dollars alongside the sat amount
@@ -330,6 +385,10 @@
           for (var ci = 0; ci < COSTS.length; ci++) totalDollars += COSTS[ci].dollars;
           tipText = bk.label + ' — $' + fmtSats(totalDollars) +
             ' (' + fmtSats(grand) + ' sats)';
+        } else if (bk.app) {
+          var grandTotal = days[days.length - 1].cumulative || 1;
+          var pct = (grand / grandTotal) * 100;
+          tipText = bk.label + ' — ' + fmtSats(grand) + ' sats (' + fmtPct(pct) + ')';
         } else {
           tipText = bk.label + ' — ' + fmtSats(grand) + ' sats';
         }
@@ -677,6 +736,25 @@
       case 'BoostMeBitch':        return 'stats-app-bmb';
       default:                    return 'stats-app-other';
     }
+  }
+
+  // App-band variant for the cumulative "By App" view.
+  function appBandCls(app) {
+    switch (app) {
+      case 'Fountain':            return 'stats-band-app-fountain';
+      case 'localbitcoiners.com': return 'stats-band-app-website';
+      case 'PodcastGuru':         return 'stats-band-app-podguru';
+      case 'CurioCaster':         return 'stats-band-app-curio';
+      case 'Castamatic':          return 'stats-band-app-castamatic';
+      case 'BoostMeBitch':        return 'stats-band-app-bmb';
+      default:                    return 'stats-band-app-other';
+    }
+  }
+
+  // Show one decimal for sub-percent slivers (BoostMeBitch ≈ 0.1%);
+  // round to integer once we're at 1% or more.
+  function fmtPct(n) {
+    return n >= 1 ? Math.round(n) + '%' : n.toFixed(1) + '%';
   }
 
   // ── Episode leaderboard — horizontal bar chart ─────────────────────

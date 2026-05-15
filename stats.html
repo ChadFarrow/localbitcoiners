@@ -369,6 +369,15 @@
     .stats-band-adbudget { fill: var(--bucket-adbudget); stroke: var(--bucket-adbudget); }
     .stats-band-fountain { fill: var(--bucket-fountain); stroke: var(--bucket-fountain); }
     .stats-band-costs    { fill: var(--bucket-costs);    stroke: var(--bucket-costs); }
+    /* App-keyed band variants for the cumulative "By App" view — same
+       .stats-chart-band base; only the fill/stroke colors differ. */
+    .stats-band-app-fountain   { fill: var(--app-fountain);   stroke: var(--app-fountain); }
+    .stats-band-app-website    { fill: var(--app-website);    stroke: var(--app-website); }
+    .stats-band-app-podguru    { fill: var(--app-podguru);    stroke: var(--app-podguru); }
+    .stats-band-app-curio      { fill: var(--app-curio);      stroke: var(--app-curio); }
+    .stats-band-app-castamatic { fill: var(--app-castamatic); stroke: var(--app-castamatic); }
+    .stats-band-app-bmb        { fill: var(--app-bmb);        stroke: var(--app-bmb); }
+    .stats-band-app-other      { fill: var(--app-other);      stroke: var(--app-other); }
 
     /* App-mix chart — per-app variable + line/dot styles using it. */
     .stats-app-fountain   { --app-c: var(--app-fountain); }
@@ -647,7 +656,10 @@
 
   <div class="stats-chart-controls" role="radiogroup" aria-label="Chart view">
     <label class="stats-chart-opt">
-      <input type="radio" name="stats-chart-view" value="cumulative" checked /> Cumulative
+      <input type="radio" name="stats-chart-view" value="splits" checked /> Sat Splits
+    </label>
+    <label class="stats-chart-opt">
+      <input type="radio" name="stats-chart-view" value="apps" /> By App
     </label>
     <label class="stats-chart-opt">
       <input type="radio" name="stats-chart-view" value="daily" /> Daily
@@ -661,7 +673,8 @@
     </div>
   </div>
 
-  <!-- Order mirrors the stacked bands top→bottom (left = top of stack). -->
+  <!-- Order mirrors the stacked bands top→bottom (left = top of stack).
+       Two legends, one per cumulative view; JS toggles which is shown. -->
   <ul class="stats-chart-legend-list" data-stats-legend>
     <li><span class="stats-legend-swatch" style="--c: var(--bucket-rev);"></span>Rev</li>
     <li><span class="stats-legend-swatch" style="--c: var(--bucket-reed);"></span>Reed</li>
@@ -669,6 +682,14 @@
     <li><span class="stats-legend-swatch" style="--c: var(--bucket-adbudget);"></span>Ad Budget</li>
     <li><span class="stats-legend-swatch" style="--c: var(--bucket-fountain);"></span>Fountain</li>
     <li><span class="stats-legend-swatch" style="--c: var(--bucket-costs);"></span>Costs</li>
+  </ul>
+  <ul class="stats-chart-legend-list" data-stats-legend-apps hidden>
+    <li><span class="stats-legend-swatch" style="--c: var(--app-podguru);"></span>PodcastGuru</li>
+    <li><span class="stats-legend-swatch" style="--c: var(--app-website);"></span>localbitcoiners.com</li>
+    <li><span class="stats-legend-swatch" style="--c: var(--app-curio);"></span>CurioCaster</li>
+    <li><span class="stats-legend-swatch" style="--c: var(--app-castamatic);"></span>Castamatic</li>
+    <li><span class="stats-legend-swatch" style="--c: var(--app-bmb);"></span>BoostMeBitch</li>
+    <li><span class="stats-legend-swatch" style="--c: var(--app-fountain);"></span>Fountain</li>
   </ul>
 
 </section>
