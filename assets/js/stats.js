@@ -581,10 +581,17 @@
     tip.hidden = true;
     document.body.appendChild(tip);
     chartTooltipEl = tip;
-    // Tap-elsewhere dismiss. Canvas click handlers stopPropagation when
-    // hitting a [data-tip] element, so this only fires for clicks on
-    // background / non-tippable elements.
+    // Tap-elsewhere dismiss. Canvas tippable-element handlers call
+    // stopPropagation, so these listeners only fire for taps/clicks on
+    // background / non-tippable areas. touchend is the mobile path
+    // (the synthesized click after touchend is unreliable on some
+    // Android setups, especially inside an installed PWA).
     document.addEventListener('click', function () {
+      if (!chartTooltipPinned) return;
+      chartTooltipPinned = false;
+      tip.hidden = true;
+    });
+    document.addEventListener('touchend', function () {
       if (!chartTooltipPinned) return;
       chartTooltipPinned = false;
       tip.hidden = true;
@@ -598,15 +605,28 @@
     canvas.dataset.chartTipWired = '1';
     var tip = ensureChartTooltipEl();
 
-    function positionTip(e) {
+    function positionTip(coord) {
+      // Accepts MouseEvent or Touch (both have .clientX / .clientY).
       var pad = 12;
-      var px = e.clientX + pad;
-      var py = e.clientY - tip.offsetHeight - 8;
-      if (py < 4) py = e.clientY + pad;
+      var px = coord.clientX + pad;
+      var py = coord.clientY - tip.offsetHeight - 8;
+      if (py < 4) py = coord.clientY + pad;
       var maxX = window.innerWidth - tip.offsetWidth - 4;
+      var maxY = window.innerHeight - tip.offsetHeight - 4;
       if (px > maxX) px = maxX;
+      if (px < 4) px = 4;
+      if (py > maxY) py = maxY;
+      if (py < 4) py = 4;
       tip.style.left = px + 'px';
       tip.style.top = py + 'px';
+    }
+    function pinAt(hit, coord) {
+      var text = hit.getAttribute('data-tip');
+      if (!text) return;
+      chartTooltipPinned = true;
+      tip.textContent = text;
+      tip.hidden = false;
+      positionTip(coord);
     }
     canvas.addEventListener('mouseover', function (e) {
       if (chartTooltipPinned) return;
@@ -638,15 +658,23 @@
     canvas.addEventListener('click', function (e) {
       var hit = e.target.closest && e.target.closest('[data-tip]');
       if (!hit) return;
-      var text = hit.getAttribute('data-tip');
-      if (!text) return;
       // Stop the document-level dismiss handler from immediately
       // un-pinning the tooltip we're about to pin.
       e.stopPropagation();
-      chartTooltipPinned = true;
-      tip.textContent = text;
-      tip.hidden = false;
-      positionTip(e);
+      pinAt(hit, e);
+    });
+    // Explicit touch handler — Chrome on Android emulates mouseover/
+    // mouseout around taps in ways that can race the click handler
+    // (and click on non-interactive SVG is itself flaky). Pinning on
+    // touchend with preventDefault suppresses the synthesized cascade
+    // and makes tap-to-pin reliable on mobile + in the PWA.
+    canvas.addEventListener('touchend', function (e) {
+      var hit = e.target.closest && e.target.closest('[data-tip]');
+      if (!hit) return;
+      if (e.cancelable) e.preventDefault();
+      e.stopPropagation();
+      var touch = (e.changedTouches && e.changedTouches[0]) || e;
+      pinAt(hit, touch);
     });
   }
 
