@@ -432,6 +432,17 @@
     }
     .stats-tooltip[hidden] { display: none; }
 
+    /* Tell mobile browsers these chart elements are interactive — kills
+       the Android Chrome double-tap zoom delay and ensures the synth
+       click target lands on the SVG element rather than the body. */
+    [data-tip] {
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+    .stats-chart-band,
+    .stats-chart-epband,
+    .stats-chart-dot { pointer-events: all; }
+
     .stats-chart-legend-list {
       list-style: none;
       margin: 0.7rem 0 0;

@@ -655,27 +655,25 @@
       if (to && to.closest && to.closest('[data-tip]')) return;
       tip.hidden = true;
     });
-    canvas.addEventListener('click', function (e) {
+    // Three redundant tap handlers — click (works on desktop, sometimes
+    // on mobile), pointerup (modern unified mouse+touch+pen, what most
+    // mobile browsers fire reliably), touchend (last-resort raw touch).
+    // Whichever fires first pins; subsequent ones re-pin to the same
+    // element (idempotent). Mobile Chrome / the PWA were dropping
+    // click events on bare SVG elements, hence the belt-and-suspenders.
+    function pinFromEvent(e) {
       var hit = e.target.closest && e.target.closest('[data-tip]');
       if (!hit) return;
-      // Stop the document-level dismiss handler from immediately
-      // un-pinning the tooltip we're about to pin.
+      if (e.cancelable) {
+        try { e.preventDefault(); } catch (_) {}
+      }
       e.stopPropagation();
-      pinAt(hit, e);
-    });
-    // Explicit touch handler — Chrome on Android emulates mouseover/
-    // mouseout around taps in ways that can race the click handler
-    // (and click on non-interactive SVG is itself flaky). Pinning on
-    // touchend with preventDefault suppresses the synthesized cascade
-    // and makes tap-to-pin reliable on mobile + in the PWA.
-    canvas.addEventListener('touchend', function (e) {
-      var hit = e.target.closest && e.target.closest('[data-tip]');
-      if (!hit) return;
-      if (e.cancelable) e.preventDefault();
-      e.stopPropagation();
-      var touch = (e.changedTouches && e.changedTouches[0]) || e;
-      pinAt(hit, touch);
-    });
+      var coord = (e.changedTouches && e.changedTouches[0]) || e;
+      pinAt(hit, coord);
+    }
+    canvas.addEventListener('click', pinFromEvent);
+    canvas.addEventListener('pointerup', pinFromEvent);
+    canvas.addEventListener('touchend', pinFromEvent, { passive: false });
   }
 
   function buildAppMixSvg(weeks, apps, view) {
