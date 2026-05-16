@@ -1312,10 +1312,29 @@ def run_zaps(state):
     Dedupes by receipt id across relays. Uses state['zap_since'] as the
     incremental cursor (with a 3-day overlap to absorb late propagation).
     Mutates state['zap_since'] to the newest receipt's created_at. Returns
-    the list of parsed zap rows."""
+    the list of parsed zap rows.
+
+    Pre-loads every zap already on disk so the cursor-windowed fetch ADDS to
+    history instead of replacing it. Without this merge, anything older than
+    (cursor - overlap) silently dropped off the next write — the daily
+    incremental rewrote zaps.csv with only what fit in the rolling window.
+    (Bug found 2026-05-16 after the morning autopush dropped 78 of 84 rows.)
+    """
     saved_since = int(state.get("zap_since") or 0)
     overlap     = 3 * 24 * 3600  # seconds — 3-day relay-propagation buffer
     since       = max(0, saved_since - overlap) if saved_since else 0
+
+    # Carry forward existing rows. seen is keyed by zap_receipt_id, so the
+    # relay fetch's dedupe is also what protects the merge.
+    seen = {}
+    if ZAPS_CSV.exists():
+        with ZAPS_CSV.open("r", newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                rid = row.get("zap_receipt_id", "")
+                if rid:
+                    seen[rid] = row
+    carried_forward = len(seen)
+    print(f"  Carried forward {carried_forward} existing zap rows from {ZAPS_CSV.name}")
 
     print(f"  Resolving LB outbox relays (NIP-65 kind 10002)...")
     relays = get_outbox_relays(LB_HEX)
@@ -1327,7 +1346,6 @@ def run_zaps(state):
     )
     print(f"  Querying {len(relays)} relays for zap receipts since {since_label}...")
 
-    seen        = {}   # zap_receipt_id -> parsed row
     newest_unix = saved_since
     for relay in relays:
         before = len(seen)
