@@ -3,6 +3,7 @@
 import sys
 import requests
 from pathlib import Path
+from datetime import datetime, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "shared"))
 from nostr_utils import (
@@ -95,6 +96,38 @@ def main():
             ph = info.get("payment_hash", "")
             print(f"[skip] live keysend boost — {ph[:12]}... {info['total_sats']:,} sats — {info.get('episode_title') or '<no title>'}")
             continue
+
+        # Defer a fresh fountain_boost when Alby's description is at its
+        # 200-char limit AND the message in info still equals that truncated
+        # tail — meaning lookup_fountain_sender didn't find a match on this
+        # poll. That's almost always a propagation race: the donor's comment
+        # was just posted on Fountain seconds before our poll, and Fountain's
+        # API hadn't indexed it yet. last_seen stays behind so the next poll
+        # (~10 min later) re-tries with Fountain having had time to index.
+        #
+        # Bounded by tx age: if the boost is older than 10 min and Fountain
+        # *still* doesn't have the comment, give up and publish the truncated
+        # version rather than defer forever. (Edge case: a natural-200-char
+        # message would otherwise loop.)
+        desc = tx.get("description", "") or ""
+        msg  = info.get("message") or ""
+        if (info["source"] == "fountain_boost"
+                and len(desc) >= 200
+                and msg
+                and msg.strip() in desc):
+            settled_iso = tx.get("settledAt", "") or ""
+            try:
+                age_sec = (datetime.now(timezone.utc)
+                           - datetime.fromisoformat(settled_iso.replace("Z", "+00:00"))
+                          ).total_seconds()
+            except Exception:
+                age_sec = 99999  # unparseable → don't defer
+            if age_sec < 600:
+                ph = info.get("payment_hash", "")
+                print(f"[defer] fountain_boost {ph[:12]}... — Alby desc truncated and "
+                      f"Fountain hasn't indexed the comment yet ({int(age_sec)}s old). "
+                      f"last_seen stays behind; next poll will retry.")
+                continue
 
         boost_count += 1
         note             = result["note_text"]
