@@ -291,11 +291,15 @@ export default function MultiLegBoostForm({
             setMessage(e.target.value)
             const el = e.target
             el.style.height = 'auto'
-            el.style.height = el.scrollHeight + 'px'
+            // Cap auto-grow at MAX_PX so long messages (e.g. naddr-interpolated
+            // boost-existing-meetup flow) scroll inside the textarea instead
+            // of pushing the modal arbitrarily tall.
+            const MAX_PX = 160
+            el.style.height = Math.min(el.scrollHeight, MAX_PX) + 'px'
           }}
           rows={4}
           maxLength={10000}
-          className="w-full bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/30 resize-none overflow-hidden leading-relaxed"
+          className="w-full bg-neutral-800 border border-neutral-700 rounded px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/30 resize-none max-h-40 overflow-y-auto leading-relaxed"
           placeholder="Leave a note for the show + guests"
         />
       </div>
