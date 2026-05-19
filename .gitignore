@@ -20,6 +20,10 @@ bots/shared/lb_episode_ids.json
 # --- Bots: testing artifacts (contain payment hashes) ---
 bots/dry-run/
 
+# --- Bots: local backup dirs created before refactors ---
+bots/**/*.bak/
+bots/leaderboards.bak-*/
+
 # --- Bots: working files (private docs, scratch, leaderboard publish log) ---
 bots/tmp/
 
