@@ -21,6 +21,7 @@ import json
 import re
 import sys
 import time
+import bech32
 import requests
 import websocket
 from datetime import datetime
@@ -179,6 +180,55 @@ def nostrify_mentions(text):
     if not text:
         return text
     return NOSTR_MENTION_RE.sub(r'nostr:\1', text)
+
+# Fountain (since ~May 2026) appends a machine-generated trailer to the stored
+# comment text of every boost: the episode permalink followed by a nostr: quote
+# of the boost's own zap receipt (kind 9735). The donor never types this — it's
+# Fountain boilerplate — and carrying it into our boost note both duplicates the
+# 🔗 episode link and renders as a broken "Quoted note not available" card on
+# the site (a zap receipt isn't a quotable note). Strip it, but ONLY when the
+# trailing nevent really decodes to a kind-9735 zap receipt, so a donor-authored
+# fountain link + genuine note quote is never touched.
+_BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+_FOUNTAIN_TRAILER_RE = re.compile(
+    r'\s*https?://fountain\.fm/episode/\S+\s+(?:nostr:)?'
+    r'(nevent1[02-9ac-hj-np-z]+)\s*$'
+)
+
+def _nevent_kind(entity):
+    """Return the kind TLV (type 3) of an nevent1... bech32 string, or None.
+    Decodes without a length cap — the stdlib bech32_decode rejects strings
+    over 90 chars, which nevents routinely exceed."""
+    try:
+        s = entity.lower()
+        if not s.startswith("nevent1"):
+            return None
+        five = [_BECH32_CHARSET.find(c) for c in s[s.rfind("1") + 1:]]
+        if any(v < 0 for v in five):
+            return None
+        tlv = bech32.convertbits(five[:-6], 5, 8, False)  # drop 6-char checksum
+        if tlv is None:
+            return None
+        i = 0
+        while i + 1 < len(tlv):
+            t, ln = tlv[i], tlv[i + 1]
+            if t == 3:
+                return int.from_bytes(bytes(tlv[i + 2:i + 2 + ln]), "big")
+            i += 2 + ln
+    except Exception:
+        return None
+    return None
+
+def strip_fountain_trailer(message):
+    """Remove Fountain's auto-appended episode-link + zap-receipt-quote trailer
+    from a Fountain boost comment. No-op unless the trailing nevent is a
+    kind-9735 zap receipt, so donor-authored content is left verbatim."""
+    if not message:
+        return message
+    m = _FOUNTAIN_TRAILER_RE.search(message)
+    if not m or _nevent_kind(m.group(1)) != 9735:
+        return message
+    return message[:m.start()].rstrip()
 
 def parse_description(description):
     pattern = r"^rss::payment::(\w+)\s+(https://[^\s?]+)(?:\?payment=\S+)?\s*(.*)?$"
@@ -699,7 +749,7 @@ def _classify_fountain_boost(tx, desc, payment_hash, settled_at, our_msats, cach
 
         sender_npub, full_message = lookup_fountain_sender(episode_id, settled_at, message, cache)
         if full_message:
-            message = full_message.strip()
+            message = strip_fountain_trailer(full_message.strip())
         if is_undefined and not message:
             message = NO_COMMENT_PLACEHOLDER
     else:
