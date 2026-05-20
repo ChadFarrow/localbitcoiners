@@ -576,7 +576,7 @@ function renderEpisodePage(ep) {
     <nav aria-label="Main navigation">
       <ul>
         <li><a href="/boosts.html">Boosts</a></li>
-        <li><a href="/newevent.html">Submit Meetup</a></li>
+        <li><a href="/meetups">Meetups</a></li>
         <li><a href="/stats.html">Stats</a></li>
         <li>
           <details class="nav-more">

@@ -41,6 +41,7 @@ const PRECACHE_URLS = [
   '/assets/js/ep-sats.js',
   '/assets/js/ep-boosts.js',
   '/assets/js/boosts-thread.js',
+  '/assets/js/calendar-events.js',
   '/assets/js/boost-actions.js',
   '/assets/js/nav.js',
 ];

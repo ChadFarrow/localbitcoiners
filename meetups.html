@@ -20,9 +20,9 @@
     object-src 'none';
   " />
 
-  <title>Submit a Meetup — Local Bitcoiners</title>
-  <meta name="description" content="Post your Bitcoin meetup to Nostr right from localbitcoiners.com. Sign in with your Nostr identity, fill in the details, and publish a NIP-52 calendar event in seconds." />
-  <link rel="canonical" href="https://localbitcoiners.com/newevent" />
+  <title>Meetups — Local Bitcoiners</title>
+  <meta name="description" content="Bitcoin meetups boosted by Local Bitcoiners listeners, pulled live from Nostr — plus a composer to publish your own meetup as a NIP-52 calendar event." />
+  <link rel="canonical" href="https://localbitcoiners.com/meetups" />
   <link rel="icon" type="image/png" href="assets/favicon.png" />
 
   <!-- PWA -->
@@ -35,9 +35,9 @@
 
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
-  <meta property="og:url" content="https://localbitcoiners.com/newevent" />
-  <meta property="og:title" content="Submit a Meetup — Local Bitcoiners" />
-  <meta property="og:description" content="Post your Bitcoin meetup to Nostr right from localbitcoiners.com." />
+  <meta property="og:url" content="https://localbitcoiners.com/meetups" />
+  <meta property="og:title" content="Meetups — Local Bitcoiners" />
+  <meta property="og:description" content="Bitcoin meetups boosted by Local Bitcoiners listeners, pulled live from Nostr." />
   <meta property="og:site_name" content="Local Bitcoiners" />
   <meta property="og:image" content="https://localbitcoiners.com/assets/LocalBitcoiners_banner_YT.jpg" />
   <meta name="twitter:card" content="summary_large_image" />
@@ -45,6 +45,9 @@
   <!-- Self-hosted fonts (mirrors boosts.html). -->
   <link rel="preload" as="font" type="font/woff2" href="assets/fonts/source-serif-4.woff2" crossorigin />
   <link rel="preload" as="font" type="font/woff2" href="assets/fonts/playfair-display.woff2" crossorigin />
+
+  <!-- Shared note / calendar-card styles (.embed-note.is-event etc.). -->
+  <link rel="stylesheet" href="/assets/css/boosts-thread.css" />
 
   <style>
     @font-face {
@@ -69,6 +72,7 @@
       --cream:   #f5eedc;
       --cream-d: #ede3c8;
       --navy:    #1e3a5f;
+      --navy-l:  #2c5282;
       --orange:  #f7931a;
       --orange-d:#d97b0e;
       --text:    #2d2010;
@@ -304,6 +308,83 @@
        inheriting any prior dark hint. */
     #lb-event-composer-slot { color-scheme: light; }
 
+    .composer-heading {
+      font-family: 'Playfair Display', Georgia, serif;
+      font-size: clamp(1.4rem, 3vw, 1.9rem);
+      font-weight: 700;
+      color: var(--navy);
+      text-align: center;
+    }
+    .composer-sub {
+      max-width: 560px;
+      margin: 0.5rem auto 1.75rem;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.98rem;
+    }
+
+    /* ── Meetups list ── */
+    .meetups-wrap {
+      max-width: 700px;
+      margin: 0 auto;
+      padding: 2.5rem 1.25rem 1.5rem;
+    }
+    .meetups-loading { display: grid; gap: 1rem; }
+    .meetup-skeleton {
+      height: 96px;
+      border-radius: 8px;
+      background: linear-gradient(90deg,
+        rgba(30,58,95,0.05) 0%,
+        rgba(30,58,95,0.12) 50%,
+        rgba(30,58,95,0.05) 100%);
+      background-size: 200% 100%;
+      animation: skeleton-shimmer 1.4s ease-in-out infinite;
+    }
+    .meetups-error,
+    .meetups-empty {
+      color: var(--muted);
+      font-style: italic;
+      padding: 1rem 0;
+    }
+    .meetup-list {
+      list-style: none;
+      display: grid;
+      gap: 1rem;
+      margin: 0;
+      padding: 0;
+    }
+    .meetup-list li { margin: 0; }
+    .meetup-list .embed-note { margin: 0; }
+
+    /* ── Past Meetups disclosure ── */
+    .past-meetups {
+      margin-top: 2.25rem;
+      border-top: 1px solid var(--border);
+      padding-top: 1.1rem;
+    }
+    .past-meetups > summary {
+      cursor: pointer;
+      list-style: none;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-family: 'Playfair Display', Georgia, serif;
+      font-weight: 700;
+      font-size: 1.1rem;
+      color: var(--navy);
+      padding: 0.3rem 0;
+    }
+    .past-meetups > summary::-webkit-details-marker { display: none; }
+    .past-meetups > summary::marker { content: ''; }
+    .past-meetups > summary::before {
+      content: '▸';
+      font-size: 0.85em;
+      transition: transform 0.15s;
+    }
+    .past-meetups[open] > summary::before { transform: rotate(90deg); }
+    .past-meetups #meetups-past { margin-top: 1rem; }
+
     /* ── Footer ── */
     footer {
       background: #12253f;
@@ -344,7 +425,7 @@
     <nav aria-label="Main navigation">
       <ul>
         <li><a href="/boosts.html">Boosts</a></li>
-        <li><a href="/newevent" class="active">Submit Meetup</a></li>
+        <li><a href="/meetups" class="active">Meetups</a></li>
         <li><a href="/stats.html">Stats</a></li>
         <li>
           <details class="nav-more">
@@ -380,12 +461,31 @@
 
 <!-- ══════════════════════════════ PAGE HEADER ══════════════════════════════ -->
 <section class="page-header">
-  <h1>Submit a Meetup</h1>
-  <p>Sign in with nostr to post your Bitcoin meetup to Nostr - viewable on any client that supports NIP-52.</p>
+  <h1>Meetups</h1>
+  <p>Meetups boosted by Local Bitcoiners Supporters - Submit Your Meetup Here!</p>
+</section>
+
+<!-- ══════════════════════════════ MEETUPS LIST ══════════════════════════════ -->
+<section class="meetups-wrap">
+  <div id="meetups-loading" class="meetups-loading" aria-live="polite">
+    <div class="meetup-skeleton"></div>
+    <div class="meetup-skeleton"></div>
+    <div class="meetup-skeleton"></div>
+  </div>
+  <p id="meetups-error" class="meetups-error" style="display:none">
+    Couldn't load meetups right now — please try again later.
+  </p>
+  <div id="meetups-upcoming"></div>
+  <details id="past-meetups" class="past-meetups" hidden>
+    <summary>Past Meetups</summary>
+    <div id="meetups-past"></div>
+  </details>
 </section>
 
 <!-- ══════════════════════════════ COMPOSER ══════════════════════════════ -->
 <section class="composer-wrap">
+  <h2 class="composer-heading">Submit a Meetup</h2>
+  <p class="composer-sub">Sign in with Nostr to publish your Bitcoin meetup as a NIP-52 calendar event — viewable on any Nostr client.</p>
   <div id="lb-event-composer-slot">
     <!-- Composer + "boost an existing meetup" card are both mounted
          here by the login-widget bundle once it loads. -->
@@ -397,45 +497,118 @@
   <p>© 2026 Local Bitcoiners Podcast &nbsp;·&nbsp; <a href="mailto:localbitcoiners@gmail.com">localbitcoiners@gmail.com</a></p>
 </footer>
 
-<!-- Identity slot placeholder. Same pattern as boosts.html — eager-load
-     the widget on this page since the composer IS the page content. -->
+<!-- ───────────────── NOSTR LOGIN WIDGET (lazy) ─────────────────
+     The widget bundle is ~250KB gzipped. The meetups list is this
+     page's primary content, so the bundle is deferred until it's
+     actually needed: a returning user's session restore, a nav
+     boost / sign-in click, or the composer scrolling into view. -->
 <script>
 (function () {
-  var slot = document.getElementById('lb-identity-slot');
-  if (!slot) return;
-  var hasSession = false;
-  try { hasSession = !!localStorage.getItem('lb_nostr_session'); } catch (e) {}
-  if (hasSession) {
-    slot.innerHTML = '<div class="lb-identity-restoring" aria-label="Loading account"></div>';
-  } else {
-    slot.innerHTML = '<button type="button" class="lb-identity-placeholder" aria-label="Sign in with Nostr">Sign in</button>';
-    var btn = slot.querySelector('button');
-    btn.addEventListener('click', function () {
-      if (window.LBLogin && typeof window.LBLogin.requestLogin === 'function') {
-        window.LBLogin.requestLogin();
+  'use strict';
+
+  let widgetPromise = null;
+  function ensureWidgetLoaded() {
+    if (widgetPromise) return widgetPromise;
+    widgetPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'assets/widgets/login-widget.js';
+      s.async = true;
+      // window.LBLogin + mount() run synchronously when the IIFE
+      // executes; wait one microtask so the render has been scheduled.
+      s.onload = () => { Promise.resolve().then(resolve); };
+      s.onerror = () => {
+        widgetPromise = null;
+        reject(new Error('Failed to load login widget'));
+      };
+      document.head.appendChild(s);
+    });
+    return widgetPromise;
+  }
+
+  // Boost-the-show nav placeholder — load on click, then open the modal.
+  const boostPh = document.querySelector('[data-lb-boost-trigger="show"]');
+  if (boostPh) {
+    boostPh.addEventListener('click', async () => {
+      boostPh.disabled = true;
+      const long = boostPh.querySelector('.lb-label-long');
+      const short = boostPh.querySelector('.lb-label-short');
+      const prevLong = long ? long.textContent : '';
+      const prevShort = short ? short.textContent : '';
+      if (long) long.textContent = 'Loading…';
+      if (short) short.textContent = '…';
+      try {
+        await ensureWidgetLoaded();
+        if (window.LBLogin?.openShowBoost) window.LBLogin.openShowBoost();
+      } catch (e) {
+        if (long) long.textContent = prevLong;
+        if (short) short.textContent = prevShort;
+        boostPh.disabled = false;
+        console.error('[lb] widget load failed', e);
       }
     });
+  }
+
+  // Identity slot — returning users get the shimmer + an eager load so
+  // their avatar resolves quickly; new users get a "Sign in" pill that
+  // loads the bundle on click.
+  const identitySlot = document.getElementById('lb-identity-slot');
+  function renderIdentitySignIn() {
+    if (!identitySlot) return;
+    identitySlot.innerHTML =
+      '<button type="button" class="lb-identity-placeholder" aria-label="Sign in with Nostr">Sign in</button>';
+    const btn = identitySlot.querySelector('button');
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      const prev = btn.textContent;
+      btn.textContent = '…';
+      try {
+        await ensureWidgetLoaded();
+        if (window.LBLogin?.requestLogin) window.LBLogin.requestLogin();
+      } catch (e) {
+        btn.textContent = prev;
+        btn.disabled = false;
+        console.error('[lb] widget load failed', e);
+      }
+    });
+  }
+  if (identitySlot) {
+    let hasSession = false;
+    try { hasSession = !!localStorage.getItem('lb_nostr_session'); } catch {}
+    if (hasSession) {
+      identitySlot.innerHTML = '<div class="lb-identity-restoring" aria-label="Loading account"></div>';
+      ensureWidgetLoaded().catch((e) => {
+        console.warn('[lb] eager widget load failed', e);
+        renderIdentitySignIn();
+      });
+    } else {
+      renderIdentitySignIn();
+    }
+  }
+
+  // Composer — the widget's mount() populates #lb-event-composer-slot
+  // once the bundle lands. Trigger that load when the composer nears
+  // the viewport so the form is ready by the time the user reaches it
+  // (fires immediately if it's already on-screen).
+  const composerSlot = document.getElementById('lb-event-composer-slot');
+  if (composerSlot) {
+    if ('IntersectionObserver' in window) {
+      const io = new IntersectionObserver((entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          io.disconnect();
+          ensureWidgetLoaded().catch((e) => console.warn('[lb] composer widget load failed', e));
+        }
+      }, { rootMargin: '600px 0px' });
+      io.observe(composerSlot);
+    } else {
+      ensureWidgetLoaded().catch((e) => console.warn('[lb] composer widget load failed', e));
+    }
   }
 })();
 </script>
 
-<!-- Boost-the-show placeholder click handler — same pattern as the
-     home page. -->
-<script>
-(function () {
-  var ph = document.querySelector('[data-lb-boost-trigger="show"]');
-  if (!ph) return;
-  ph.addEventListener('click', function () {
-    if (window.LBLogin && typeof window.LBLogin.openShowBoost === 'function') {
-      window.LBLogin.openShowBoost();
-    }
-  });
-})();
-</script>
-
-<!-- Login widget (shared) — eager-loaded because the composer slot is
-     this page's primary content. -->
-<script src="assets/widgets/login-widget.js" defer></script>
+<!-- Meetups list — fetches the boosted-meetup feed + live calendar
+     events from Nostr and renders the cards. -->
+<script type="module" src="/assets/js/meetups.js"></script>
 
 <!-- PWA service worker -->
 <script>

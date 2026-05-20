@@ -1,5 +1,6 @@
 /* Shared styles for the boost mega-thread renderer (boosts-thread.js).
-   Used by /boosts.html (full thread) and /ep### (per-episode subset).
+   Used by /boosts.html (full thread), /ep### (per-episode subset), and
+   /meetups (the .embed-note.is-event calendar card).
    Relies on the host page defining the LB color variables on :root —
    --cream, --cream-d, --navy, --navy-l, --orange, --orange-d, --text,
    --muted, --border, --white. */

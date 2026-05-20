@@ -1,0 +1,3 @@
+# The "Submit a Meetup" page became the "Meetups" page (/meetups).
+/newevent       /meetups   301
+/newevent.html  /meetups   301
