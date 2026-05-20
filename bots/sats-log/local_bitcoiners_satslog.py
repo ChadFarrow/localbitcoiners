@@ -69,6 +69,7 @@ import sys
 import csv
 import json
 import time
+import bech32
 import requests
 import subprocess
 import websocket
@@ -96,6 +97,8 @@ FOUNTAIN_CSV     = REPO_ROOT / "data" / "fountain-api.csv"
 VALUE_SPLITS_CSV = REPO_ROOT / "data" / "value-splits.csv"  # hand-maintained bot INPUT
 ZAPS_CSV         = REPO_ROOT / "data" / "zaps.csv"
 ZAPS_JSON        = REPO_ROOT / "data" / "zaps.json"
+MEETUPS_CSV      = REPO_ROOT / "data" / "meetups.csv"
+MEETUPS_JSON     = REPO_ROOT / "data" / "meetups.json"
 
 # Local Bitcoiners Nostr identity — used to query zap receipts addressed to us.
 LB_NPUB = "npub1cvcgs83gw6pcrhvtmlf8gdqaegx93qkznwry96jteqhh2cexgkfq45rtya"
@@ -111,6 +114,22 @@ ZAP_COLUMNS = [
     "sender_name",      # blank — Nostr identity is npub-only (kept for sats.csv parity)
     "sats",             # integer; from the kind-9734 amount tag
     "message",          # zap comment from the inner 9734 content
+]
+
+# Columns for data/meetups.csv. One row per (NIP-52 calendar event × boost that
+# shared it) — occurrence grain, like zaps.csv. The website dedups on the
+# `coordinate` column and resolves the live event from `naddr` itself.
+MEETUP_COLUMNS = [
+    "settled_at",       # settled_at of the boost that carried the naddr
+    "payment_hash",     # boost dedup key — join back to sats.csv for full context
+    "source",           # boost source (website | fountain_boost | keysend | ...)
+    "naddr",            # the naddr1... as found in the message, lowercased
+    "coordinate",       # kind:pubkey:identifier — stable dedup key for the event
+    "event_kind",       # 31922 (date-based) | 31923 (time-based)
+    "sender_npub",      # booster's npub when known; empty otherwise
+    "sender_name",      # booster's display name when known; empty otherwise
+    "episode_num",      # zero-padded episode the boost landed on, if derivable
+    "total_sats",       # gross sats of the carrying boost
 ]
 
 # Show launched 2026-02-02 — same backstop the episodesats leaderboard uses.
@@ -1413,6 +1432,148 @@ def write_zaps_json():
 
 
 # ---------------------------------------------------------------------------
+# Meetups — NIP-52 calendar-event naddrs shared via boost
+#
+# Boosters sometimes promote a local meetup by pasting its NIP-52 calendar
+# event (an naddr1...) into the boost message. This pass scans every boost
+# message for those naddrs and logs them to data/meetups.csv so the website
+# can build a meetups page. Pure transform of rows already in sats.csv — the
+# pipeline's full rewrite means the first run backfills the whole history.
+# ---------------------------------------------------------------------------
+
+# NIP-52 calendar event kinds: 31922 date-based, 31923 time-based.
+NIP52_KINDS = {31922, 31923}
+
+# Match an naddr1 bech32 token anywhere — bare, nostr:-prefixed, or embedded in
+# a URL (njump.me/naddr1..., etc.). The lookbehind skips naddr1 glued to a
+# preceding word char. Data charset excludes bech32's 1/b/i/o.
+_NADDR_RE = re.compile(r'(?<!\w)naddr1[02-9ac-hj-np-z]+', re.IGNORECASE)
+_BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+
+
+def decode_naddr(entity):
+    """Decode a NIP-19 naddr1... into {kind, pubkey, identifier, relays}, or
+    None if it isn't a well-formed naddr. Decodes without a length cap — the
+    stdlib bech32_decode rejects strings over 90 chars, which naddrs exceed.
+
+    naddr TLV: type 0 = identifier / d-tag (UTF-8, variable), type 1 = relay
+    (UTF-8), type 2 = author pubkey (32 bytes), type 3 = kind (4-byte BE int).
+    kind, pubkey and identifier are all required for a valid naddr."""
+    try:
+        s = entity.lower()
+        if not s.startswith("naddr1"):
+            return None
+        five = [_BECH32_CHARSET.find(c) for c in s[s.rfind("1") + 1:]]
+        if len(five) < 7 or any(v < 0 for v in five):
+            return None
+        data = bech32.convertbits(five[:-6], 5, 8, False)  # drop 6-char checksum
+        if data is None:
+            return None
+        kind = pubkey = identifier = None
+        relays = []
+        i = 0
+        while i + 1 < len(data):
+            t, ln = data[i], data[i + 1]
+            val = bytes(data[i + 2:i + 2 + ln])
+            if len(val) != ln:
+                return None
+            if t == 0:
+                identifier = val.decode("utf-8", "replace")
+            elif t == 1:
+                relays.append(val.decode("utf-8", "replace"))
+            elif t == 2:
+                pubkey = val.hex()
+            elif t == 3:
+                kind = int.from_bytes(val, "big")
+            i += 2 + ln
+        if kind is None or pubkey is None or identifier is None or len(pubkey) != 64:
+            return None
+        return {"kind": kind, "pubkey": pubkey, "identifier": identifier, "relays": relays}
+    except Exception:
+        return None
+
+
+def extract_meetup_rows(boost_rows):
+    """Scan boost messages for NIP-52 calendar-event naddrs and return one
+    meetup row per (event × boost). Occurrence grain: the same meetup boosted
+    on three episodes yields three rows; the website dedups on `coordinate`.
+    A naddr repeated within a single message is counted once."""
+    rows = []
+    for r in boost_rows:
+        message = r.get("message") or ""
+        if "naddr1" not in message.lower():
+            continue
+        seen_here = set()
+        for m in _NADDR_RE.finditer(message):
+            token = m.group(0).lower()
+            decoded = decode_naddr(token)
+            if not decoded or decoded["kind"] not in NIP52_KINDS:
+                continue
+            coordinate = f'{decoded["kind"]}:{decoded["pubkey"]}:{decoded["identifier"]}'
+            if coordinate in seen_here:
+                continue
+            seen_here.add(coordinate)
+            rows.append({
+                "settled_at":   r.get("settled_at", "") or "",
+                "payment_hash": r.get("payment_hash", "") or "",
+                "source":       r.get("source", "") or "",
+                "naddr":        token,
+                "coordinate":   coordinate,
+                "event_kind":   str(decoded["kind"]),
+                "sender_npub":  r.get("sender_npub", "") or "",
+                "sender_name":  r.get("sender_name", "") or "",
+                "episode_num":  r.get("episode_num", "") or "",
+                "total_sats":   str(r.get("total_sats", "") or ""),
+            })
+    return rows
+
+
+def write_meetups_csv(rows):
+    """Full rewrite of data/meetups.csv. Sorted by settled_at desc (then by
+    coordinate for stability)."""
+    MEETUPS_CSV.parent.mkdir(parents=True, exist_ok=True)
+    sorted_rows = sorted(
+        rows,
+        key=lambda r: (r.get("settled_at") or "", r.get("coordinate") or ""),
+        reverse=True,
+    )
+    with MEETUPS_CSV.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=MEETUP_COLUMNS)
+        writer.writeheader()
+        writer.writerows(sorted_rows)
+
+
+def write_meetups_json():
+    """Mirror data/meetups.csv as data/meetups.json — same wrapper shape as
+    sats.json / zaps.json. Reads the CSV back for a guaranteed match."""
+    rows = []
+    with MEETUPS_CSV.open("r", newline="", encoding="utf-8") as f:
+        for raw in csv.DictReader(f):
+            row = {}
+            for col in MEETUP_COLUMNS:
+                v = raw.get(col, "")
+                if v == "":
+                    row[col] = None
+                elif col in ("event_kind", "total_sats"):
+                    row[col] = int(v)
+                else:
+                    row[col] = v
+            rows.append(row)
+
+    generated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    body = (
+        "{\n"
+        f'  "generated_at": {json.dumps(generated_at)},\n'
+        '  "source": "meetups.csv",\n'
+        f'  "row_count": {len(rows)},\n'
+        '  "rows": [\n'
+        + ",\n".join("    " + json.dumps(r, ensure_ascii=False) for r in rows)
+        + "\n  ]\n}\n"
+    )
+    MEETUPS_JSON.write_text(body, encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
 # git autopush
 # ---------------------------------------------------------------------------
 
@@ -1423,6 +1584,7 @@ def git_autopush():
     files = [
         "data/sats.csv", "data/sats.json", "data/fountain-api.csv",
         "data/zaps.csv", "data/zaps.json", "data/leaderboards.csv",
+        "data/meetups.csv", "data/meetups.json",
     ]
     try:
         subprocess.run(
@@ -1534,6 +1696,13 @@ def main():
     print(f"Value-split breakdown: {len(splits_rules)} rules loaded → "
           f"{split_matched} rows split, {split_unmatched} rows with no matching rule")
 
+    # ── Meetups — NIP-52 calendar-event naddrs shared via boost ──
+    meetup_rows = extract_meetup_rows(all_boost_rows)
+    unique_meetups = len({r["coordinate"] for r in meetup_rows})
+    print()
+    print(f"Meetup naddrs (→meetups.csv): {len(meetup_rows)} occurrences "
+          f"across {unique_meetups} unique calendar events")
+
     # ── Stats ──
     print()
     print(f"Total rows in regenerated CSV: {len(all_rows)} "
@@ -1570,6 +1739,9 @@ def main():
         print("\n[dry-run] First few zap rows:")
         for r in sorted(zap_rows, key=lambda x: x.get("settled_at",""), reverse=True)[:5]:
             print(f"  {r}")
+        print("\n[dry-run] First few meetup rows:")
+        for r in meetup_rows[:5]:
+            print(f"  {r}")
         print("\n[dry-run] not writing CSVs, not advancing state, not pushing.")
         return
 
@@ -1587,6 +1759,12 @@ def main():
 
     write_zaps_json()
     print(f"Wrote {len(zap_rows)} rows → {ZAPS_JSON}")
+
+    write_meetups_csv(meetup_rows)
+    print(f"Wrote {len(meetup_rows)} rows → {MEETUPS_CSV}")
+
+    write_meetups_json()
+    print(f"Wrote {len(meetup_rows)} rows → {MEETUPS_JSON}")
 
     # Persist state: the Alby cursor (if it advanced) and the Castamatic
     # stream cache (which may have grown even when the cursor didn't).
