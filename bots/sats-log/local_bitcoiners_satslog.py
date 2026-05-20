@@ -1422,7 +1422,7 @@ def git_autopush():
     run picks up where this one left off."""
     files = [
         "data/sats.csv", "data/sats.json", "data/fountain-api.csv",
-        "data/zaps.csv", "data/zaps.json",
+        "data/zaps.csv", "data/zaps.json", "data/leaderboards.csv",
     ]
     try:
         subprocess.run(
@@ -1442,7 +1442,7 @@ def git_autopush():
             cwd=REPO_ROOT, check=True, capture_output=True,
         )
         subprocess.run(["git", "push"], cwd=REPO_ROOT, check=True, capture_output=True)
-        print("  [autopush] pushed sats.csv + sats.json + fountain-api.csv + zaps.csv + zaps.json")
+        print("  [autopush] pushed " + " + ".join(f.removeprefix("data/") for f in files))
     except subprocess.CalledProcessError as e:
         err = e.stderr.decode() if e.stderr else ""
         print(f"  [autopush] failed: {e}\n  {err}")
