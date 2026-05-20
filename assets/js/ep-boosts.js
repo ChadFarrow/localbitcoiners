@@ -2,8 +2,8 @@
  *
  * Fetches the show-wide boost mega-thread, filters its direct replies
  * to the ones whose content carries an episode marker matching this
- * page's data-ep-num, and renders each match with its descendant reply
- * tree intact.
+ * page's data-ep-num, and renders each match as a card. Replies to those
+ * boosts are not shown.
  *
  * Hooks the shared boost-actions module in so cards get the same
  * Reply/Repost/Like/Zap bar /boosts.html shows. The login widget is
@@ -12,7 +12,6 @@
  */
 import {
   fetchBoostThread,
-  renderRepliesTree,
   renderNoteCard,
 } from '/assets/js/boosts-thread.js'
 import { configureBoostActions } from '/assets/js/boost-actions.js'
@@ -67,8 +66,8 @@ function repaint(rootEvent, childrenOf, epNum, statusEl, listEl) {
   // Fountain title is `Local Bitcoiners • 001. …` with no "Ep." marker,
   // so the second alternative (anchored to the show-name prefix to
   // avoid matching stray bullet lists in message bodies) catches it.
-  // Anchors are direct-reply matches under the root; their full
-  // descendant tree comes along via renderRepliesTree.
+  // Anchors are direct-reply matches under the root; replies to those
+  // boosts are intentionally not rendered.
   const epPattern = new RegExp(
     `\\bEp\\.?\\s*0*${epNum}\\b|Local Bitcoiners\\s*•\\s*0*${epNum}\\.`,
     'i'
@@ -102,7 +101,6 @@ function repaint(rootEvent, childrenOf, epNum, statusEl, listEl) {
   for (const ev of anchors) {
     const li = document.createElement('li')
     li.appendChild(renderNoteCard(ev))
-    renderRepliesTree(ev.id, childrenOf, li)
     ul.appendChild(li)
   }
   listEl.appendChild(ul)

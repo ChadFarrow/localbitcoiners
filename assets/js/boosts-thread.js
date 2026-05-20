@@ -2,7 +2,8 @@
  *
  * Loads + renders the boost mega-thread (kind-1 root + descendants) for any
  * page that wants to display it: /boosts.html in full, or /ep### filtered to
- * a single episode's anchor boosts and their replies.
+ * a single episode's boosts. Only the boost notes (direct children of the
+ * root) are rendered — replies to those boosts are never shown.
  *
  * This module is read-only on purpose. Mutation (reply, like, repost, zap) is
  * page-specific and stays in /boosts.html — it consumes this module's
@@ -763,8 +764,11 @@ function getOrRenderCard(ev, opts) {
   return card
 }
 
-// ── Recursive descendant tree ────────────────────────────────────────
-export function renderRepliesTree(parentId, childrenOf, container) {
+// ── Direct-child card list ───────────────────────────────────────────
+// Renders the immediate child notes of `parentId` as a flat card list.
+// Deliberately one level deep: replies to those notes are not shown
+// anywhere on the site (spam mitigation).
+export function renderChildCards(parentId, childrenOf, container) {
   const kids = childrenOf.get(parentId) || []
   if (!kids.length) return
   const ul = document.createElement('ul')
@@ -772,13 +776,12 @@ export function renderRepliesTree(parentId, childrenOf, container) {
   for (const ev of kids) {
     const li = document.createElement('li')
     li.appendChild(getOrRenderCard(ev))
-    renderRepliesTree(ev.id, childrenOf, li)
     ul.appendChild(li)
   }
   container.appendChild(ul)
 }
 
-// ── Thread building + descendant counting ────────────────────────────
+// ── Thread building ──────────────────────────────────────────────────
 export function buildThread(rootId, allNotes) {
   const root = allNotes.find(n => n.id === rootId)
   const childrenOf = new Map()
@@ -796,18 +799,6 @@ export function buildThread(rootId, allNotes) {
     arr.sort((a, b) => (b.created_at || 0) - (a.created_at || 0))
   }
   return { root, childrenOf }
-}
-
-export function countDescendants(rootId, childrenOf) {
-  let n = 0
-  const stack = [rootId]
-  while (stack.length) {
-    const id = stack.pop()
-    const kids = childrenOf.get(id) || []
-    n += kids.length
-    for (const k of kids) stack.push(k.id)
-  }
-  return n
 }
 
 function isWsUrl(u) {
@@ -828,7 +819,7 @@ export async function fetchBoostThread({ rootNevent = ROOT_NEVENT } = {}) {
     rootId     = decoded.data.id
     hintRelays = Array.isArray(decoded.data.relays) ? decoded.data.relays.filter(isWsUrl) : []
   } catch {
-    return { rootEvent: null, childrenOf: new Map(), totalReplies: 0, error: 'invalid-root' }
+    return { rootEvent: null, childrenOf: new Map(), error: 'invalid-root' }
   }
 
   // Fetch from Primal and the relays in parallel, then union the note
@@ -858,7 +849,7 @@ export async function fetchBoostThread({ rootNevent = ROOT_NEVENT } = {}) {
 
   const { root, childrenOf } = buildThread(rootId, notes)
   if (!root) {
-    return { rootEvent: null, childrenOf: new Map(), totalReplies: 0, error: 'no-root' }
+    return { rootEvent: null, childrenOf: new Map(), error: 'no-root' }
   }
 
   // If Primal was unreachable we have notes (from relays) but no author
@@ -934,6 +925,5 @@ export async function fetchBoostThread({ rootNevent = ROOT_NEVENT } = {}) {
     }
   }
 
-  const totalReplies = notes.filter(n => n.id !== rootId).length
-  return { rootEvent: root, childrenOf, totalReplies, error: null }
+  return { rootEvent: root, childrenOf, error: null }
 }

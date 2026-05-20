@@ -2,16 +2,15 @@
  *
  * Fetches the show-wide boost mega-thread (same fetch + render path as
  * /boosts.html and the episode pages), keeps only the bot boost notes
- * worth 10,000+ sats, and renders them largest-first with their reply
- * subtrees intact. The sat amount is parsed from the bot's "💰 N sats"
- * line in the note content.
+ * worth 10,000+ sats, and renders them largest-first. Replies to those
+ * boosts are not shown. The sat amount is parsed from the bot's
+ * "💰 N sats" line in the note content.
  *
  * Hooks the shared boost-actions module in so every card gets the same
  * Reply/Repost/Like/Zap bar /boosts.html shows.
  */
 import {
   fetchBoostThread,
-  renderRepliesTree,
   renderNoteCard,
   setCachedProfile,
   registerEvent,
@@ -128,14 +127,12 @@ function repaint(rootEvent, childrenOf, container, extras) {
     return
   }
 
-  // Anchors render largest-first; each brings its full reply subtree
-  // along via renderRepliesTree (un-threaded extras simply have none).
+  // Anchors render largest-first as cards.
   const ul = document.createElement('ul')
   ul.className = 'note-list'
   for (const ev of anchors) {
     const li = document.createElement('li')
     li.appendChild(renderNoteCard(ev))
-    renderRepliesTree(ev.id, childrenOf, li)
     ul.appendChild(li)
   }
   container.appendChild(ul)

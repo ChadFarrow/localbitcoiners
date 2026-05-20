@@ -404,12 +404,11 @@
   // Mutation handlers (action bar, reply composer, like/repost/zap,
   // login hydration, toast) live in /assets/js/boost-actions.js.
   // This page just fetches the thread once, hands state + repaint to
-  // boost-actions, and renders the full mega-thread.
+  // boost-actions, and renders the boost list (replies are not shown).
   import {
     ROOT_NEVENT,
     fetchBoostThread,
-    renderRepliesTree,
-    countDescendants,
+    renderChildCards,
   } from '/assets/js/boosts-thread.js'
   import { configureBoostActions } from '/assets/js/boost-actions.js'
 
@@ -426,25 +425,26 @@
     $error.style.display = 'block'
   }
 
-  function paint(root, childrenOf, totalReplies) {
+  function paint(root, childrenOf) {
     $loading.style.display = 'none'
     $content.innerHTML = ''
 
+    const boosts = childrenOf.get(root.id) || []
+
     const repliesHeading = document.createElement('h2')
     repliesHeading.className = 'replies-heading'
-    repliesHeading.textContent = totalReplies
-      ? `${totalReplies} ${totalReplies === 1 ? 'Boost' : 'Boosts'}`
+    repliesHeading.textContent = boosts.length
+      ? `${boosts.length} ${boosts.length === 1 ? 'Boost' : 'Boosts'}`
       : 'Boosts'
     $content.appendChild(repliesHeading)
 
-    const directReplies = childrenOf.get(root.id) || []
-    if (!directReplies.length) {
+    if (!boosts.length) {
       const empty = document.createElement('p')
       empty.className = 'replies-empty'
       empty.textContent = 'No boosts yet — be the first to reply on Nostr.'
       $content.appendChild(empty)
     } else {
-      renderRepliesTree(root.id, childrenOf, $content)
+      renderChildCards(root.id, childrenOf, $content)
     }
   }
 
@@ -458,14 +458,13 @@
 
   function rerenderBoosts() {
     if (!state.rootEvent) return
-    const total = countDescendants(state.rootEvent.id, state.childrenOf)
-    paint(state.rootEvent, state.childrenOf, total)
+    paint(state.rootEvent, state.childrenOf)
   }
 
   async function init() {
     // fetchBoostThread owns the Primal-first + relay-fallback fetch, the
     // mention/quote/calendar resolution, and cache seeding.
-    const { rootEvent, childrenOf, totalReplies, error } = await fetchBoostThread()
+    const { rootEvent, childrenOf, error } = await fetchBoostThread()
     if (error || !rootEvent) {
       showError()
       return
@@ -476,7 +475,7 @@
     // repaint, registers the action bar with the renderer, kicks off
     // login-state hydration.
     configureBoostActions({ rootEvent, childrenOf, rerender: rerenderBoosts })
-    paint(rootEvent, childrenOf, totalReplies)
+    paint(rootEvent, childrenOf)
   }
 
   init().catch((err) => {
