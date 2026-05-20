@@ -583,6 +583,7 @@ def _new_info(source, payment_hash, settled_at, our_msats, total_msats, divisor)
         "app_name":       "",
         "boostagram":     None,
         "show_level":     False,
+        "fountain_comment_pending": False,
         "raw_tx":         None,
     }
 
@@ -752,9 +753,21 @@ def _classify_fountain_boost(tx, desc, payment_hash, settled_at, our_msats, cach
             message = strip_fountain_trailer(full_message.strip())
         if is_undefined and not message:
             message = NO_COMMENT_PLACEHOLDER
+
+        # The donor left a BOLT11 memo but lookup_fountain_sender found no
+        # matching Fountain comment — almost always a propagation race: the
+        # comment was posted seconds ago and Fountain's API hasn't indexed it
+        # yet. Flag it so boost-publisher defers and retries on a later poll,
+        # recovering the sender npub and the full (often truncated) message.
+        comment_pending = (
+            not full_message
+            and not is_undefined
+            and bool((parsed.get("message") or "").strip())
+        )
     else:
         episode_url, episode_id, episode_title, guests = None, None, None, []
         message, sender_npub = "", None
+        comment_pending = False
 
     divisor     = get_divisor(settled_at)
     total_msats = round(our_msats / divisor) if divisor else our_msats
@@ -770,6 +783,7 @@ def _classify_fountain_boost(tx, desc, payment_hash, settled_at, our_msats, cach
         "guests":         guests or [],
         "app_name":       "Fountain",
         "show_level":     show_level,
+        "fountain_comment_pending": comment_pending,
         "raw_tx":         tx,
     })
     # Show-level boosts return the show id as episode_id; don't record into
