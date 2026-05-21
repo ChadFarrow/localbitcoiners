@@ -1,8 +1,9 @@
 {
-  "generated_at": "2026-05-20T08:46:09Z",
+  "generated_at": "2026-05-21T08:46:04Z",
   "source": "zaps.csv",
-  "row_count": 88,
+  "row_count": 89,
   "rows": [
+    {"settled_at": "2026-05-20T16:46:53Z", "zap_receipt_id": "15d2c68ee21ffff140b1805492ac35c539aa345e8e10e75dabc0ba8066c8a0de", "zapped_event_id": "dca96251af770b360b1a3756fbaa99018f8b584e2c6ac5c7fa3cc1c9963600bf", "sender_npub": "npub1f5pre6wl6ad87vr4hr5wppqq30sh58m4p33mthnjreh03qadcajs7gwt3z", "sender_name": null, "sats": 21, "message": null},
     {"settled_at": "2026-05-19T23:21:20Z", "zap_receipt_id": "c744ea1f628a212b669965860e6167250e9a8d9e966ea925a76a5a62ea2f1916", "zapped_event_id": "952bb5b92babcfa3bc42acde974902a19edcf6dd31a13b115f51fa4e53b9e8de", "sender_npub": "npub1cvcgs83gw6pcrhvtmlf8gdqaegx93qkznwry96jteqhh2cexgkfq45rtya", "sender_name": null, "sats": 1121, "message": "⚡ #valuechain ⚡"},
     {"settled_at": "2026-05-19T18:17:13Z", "zap_receipt_id": "1b9e1568fe2b77aa8ec6c186c6534bced6f513f5a02c66248a7e963342f4e98f", "zapped_event_id": "501d39b0a955d3e420fea39eeb753ec21eb11734706ba39c2f1649be9a2335b0", "sender_npub": "npub1f5pre6wl6ad87vr4hr5wppqq30sh58m4p33mthnjreh03qadcajs7gwt3z", "sender_name": null, "sats": 21, "message": null},
     {"settled_at": "2026-05-19T18:16:28Z", "zap_receipt_id": "70f28da98deaf0dbce6c826dcda214cb146f1b64402f44f5f8f910eebfa6485b", "zapped_event_id": "c84fef29036f2c46de408b0a223a56bb06d65a781acf9053d8bf00521a47428b", "sender_npub": "npub1f5pre6wl6ad87vr4hr5wppqq30sh58m4p33mthnjreh03qadcajs7gwt3z", "sender_name": null, "sats": 21, "message": null},
