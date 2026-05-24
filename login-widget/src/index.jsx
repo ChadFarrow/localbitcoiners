@@ -11,8 +11,10 @@ import IdentityWidget from './components/IdentityWidget.jsx'
 import WalletConnectModal from './components/WalletConnectModal.jsx'
 import ToastHost from './components/ToastHost.jsx'
 import BoostProgressBanner from './components/BoostProgressBanner.jsx'
-import EventComposer from './components/EventComposer.jsx'
-import BoostExistingEvent from './components/BoostExistingEvent.jsx'
+import MyMeetupsModal from './components/MyMeetupsModal.jsx'
+import SearchMeetupsModal from './components/SearchMeetupsModal.jsx'
+import BoostExistingMeetupModal from './components/BoostExistingMeetupModal.jsx'
+import CreateMeetupModal from './components/CreateMeetupModal.jsx'
 import {
   loadSession, restoreSession, clearSession,
   saveProfile, loadCachedProfile, clearProfile,
@@ -429,31 +431,72 @@ function EpisodeBoostHost() {
   )
 }
 
-// ── Event composer host ──────────────────────────────────────────────────
-// Mounted into #lb-event-composer-slot on /newevent. Reuses the shared
-// user signal so sign-in state stays consistent with the identity
-// widget, and routes the boost-the-show side-effect through the gated
-// api.openShowBoost so wallet/login gates apply identically to the
-// homepage boost button.
-function EventComposerHost() {
+// ── Meetup-flow modal host ───────────────────────────────────────────────
+// One signal, one host. The four entry points on the meetups page —
+// "My meetups", "Search Nostr", "Paste naddr", "+ Create new" — set the
+// same module-level state with a discriminator, and this host renders
+// whichever modal is open. Only one is ever open at a time.
+const meetupModalListeners = new Set()
+let meetupModalState = null   // { kind: 'my'|'search'|'paste'|'create' } or null
+function setMeetupModalState(v) {
+  meetupModalState = v || null
+  for (const fn of meetupModalListeners) {
+    try { fn(meetupModalState) } catch {}
+  }
+}
+
+function MeetupModalHost() {
   const user = useSharedUser()
   const realUser = (user && !isStubUser(user)) ? user : null
-  return (
-    <>
-      <BoostExistingEvent
-        sessionUser={realUser}
-        onRequestSignIn={() => api.requestLogin()}
-        onOpenShowBoostWithMessage={(msg) => api.openShowBoost({ prefillMessage: msg })}
+  const [state, setLocalState] = useState(meetupModalState)
+  useEffect(() => {
+    const fn = (v) => setLocalState(v)
+    meetupModalListeners.add(fn)
+    return () => { meetupModalListeners.delete(fn) }
+  }, [])
+  if (!state) return null
+
+  const close = () => setMeetupModalState(null)
+  const openShowBoostWithMessage = (msg) => api.openShowBoost({ prefillMessage: msg })
+
+  let body = null
+  if (state.kind === 'my') {
+    body = (
+      <MyMeetupsModal
+        user={realUser}
+        onClose={close}
+        onBoostMeetup={openShowBoostWithMessage}
       />
-      <div className="mt-6">
-        <EventComposer
-          sessionUser={realUser}
-          onRequestSignIn={() => api.requestLogin()}
-          onOpenShowBoostWithMessage={(msg) => api.openShowBoost({ prefillMessage: msg })}
-        />
-      </div>
-    </>
-  )
+    )
+  } else if (state.kind === 'search') {
+    body = (
+      <SearchMeetupsModal
+        onClose={close}
+        onBoostMeetup={openShowBoostWithMessage}
+      />
+    )
+  } else if (state.kind === 'paste') {
+    body = (
+      <BoostExistingMeetupModal
+        user={realUser}
+        onClose={close}
+        onRequestSignIn={() => api.requestLogin()}
+        onOpenShowBoostWithMessage={openShowBoostWithMessage}
+      />
+    )
+  } else if (state.kind === 'create') {
+    body = (
+      <CreateMeetupModal
+        user={realUser}
+        onClose={close}
+        onRequestSignIn={() => api.requestLogin()}
+        onOpenShowBoostWithMessage={openShowBoostWithMessage}
+      />
+    )
+  }
+
+  if (!body) return null
+  return createPortal(body, document.body)
 }
 
 // ── Identity slot host ───────────────────────────────────────────────────
@@ -506,13 +549,6 @@ const api = {
       createRoot(identityEl).render(<IdentityHost />)
     }
 
-    // Event composer (only on /newevent — the slot only exists there)
-    const composerEl = document.getElementById('lb-event-composer-slot')
-    if (composerEl) {
-      composerEl.replaceChildren()
-      createRoot(composerEl).render(<EventComposerHost />)
-    }
-
     // Always-mounted hosts for portal modals. We attach hidden divs
     // to the body so they work even on pages that don't have the
     // boost slot or identity slot.
@@ -527,6 +563,7 @@ const api = {
     createRoot(makeHost('lb-episode-boost-host')).render(<EpisodeBoostHost />)
     createRoot(makeHost('lb-show-boost-host')).render(<ShowBoostHost />)
     createRoot(makeHost('lb-wallet-connect-host')).render(<WalletConnectHost />)
+    createRoot(makeHost('lb-meetup-modal-host')).render(<MeetupModalHost />)
     createRoot(makeHost('lb-toast-host')).render(<ToastHost />)
     createRoot(makeHost('lb-boost-progress-host')).render(<BoostProgressBanner />)
 
@@ -771,6 +808,44 @@ const api = {
       episode,
       splits: { ...splits, recipients: normalizedRecipients },
     })
+  },
+
+  /**
+   * Open one of the meetup-flow modals on the /meetups page. All four
+   * entry points share a single gate chain: login → real-user → signer
+   * verified. The actual boost handoff inside each modal calls back
+   * into api.openShowBoost which applies the wallet gate, so there's
+   * no need to pre-engage the wallet here.
+   *
+   * Same pending-action pattern as openShowBoost: a click while the
+   * user is logged out (or restoring) saves the call, opens the login
+   * modal, and replays after login lands.
+   *
+   * @param {'my'|'search'|'paste'|'create'} kind
+   */
+  async openMeetupModal(kind) {
+    if (!['my', 'search', 'paste', 'create'].includes(kind)) return
+    // Gate 1: signed in?
+    if (!currentUser || currentUser === undefined) {
+      setPendingAction(() => api.openMeetupModal(kind))
+      api.requestLogin()
+      return
+    }
+    // Gate 1.5: real user (not a stub)? The four flows all need a
+    // signer eventually — fetching the user's events needs the pubkey
+    // (a stub has it, so 'my' could technically render with just the
+    // stub) but for consistency with the show-boost chain we wait for
+    // the real restore to land before opening any of them.
+    if (isStubUser(currentUser)) {
+      setPendingAction(() => api.openMeetupModal(kind))
+      ensureRealRestore()
+      return
+    }
+    // Gate 1.75: signer-account match. The Create flow publishes an
+    // event under the user's pubkey; Search/My/Paste don't sign on
+    // open but their boost handoff eventually will. Verify once here.
+    if (!await ensureSignerVerified()) return
+    setMeetupModalState({ kind })
   },
 
   /** Wallet status snapshot for consumers that want to render wallet

@@ -1,0 +1,204 @@
+/**
+ * MyMeetupsModal — list the logged-in user's published NIP-52 calendar
+ * events (31922/31923) with a one-click Boost button on each row.
+ *
+ * The lowest-friction path from "I have a meetup on Nostr" to "I just
+ * boosted my meetup." No naddr typing, no searching — the user's own
+ * events are fetched directly from relays via the shared NDK instance.
+ *
+ * Boost handoff routes through the parent-supplied callback (which calls
+ * api.openShowBoost with a {naddr}-prefilled message) so the show-boost
+ * modal's wallet/signer gates apply unchanged.
+ */
+import { useEffect, useState } from 'react'
+import { getNDK, connectAndWait } from '../lib/ndk.js'
+import {
+  KIND_DATE_EVENT,
+  KIND_TIME_EVENT,
+  parseCalendarEvent,
+} from '../lib/eventTypes.js'
+import { BOOST_EXISTING_TEMPLATE, interpolateNaddr } from '../lib/eventAnnouncement.js'
+import MeetupModalChrome from './MeetupModalChrome.jsx'
+
+function formatWhen(p) {
+  if (!p || !Number.isFinite(p.startUnix)) return ''
+  const ms = p.startUnix * 1000
+  const sameYear = new Date(ms).getFullYear() === new Date().getFullYear()
+  if (p.isDateBased) {
+    return new Intl.DateTimeFormat(undefined, {
+      weekday: 'short', month: 'short', day: 'numeric',
+      year: sameYear ? undefined : 'numeric',
+      timeZone: 'UTC',
+    }).format(new Date(ms))
+  }
+  const tz = p.startTzid || undefined
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: 'short', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+    year: sameYear ? undefined : 'numeric',
+    timeZone: tz,
+    timeZoneName: 'short',
+  }).format(new Date(ms))
+}
+
+function splitFuturePast(events) {
+  const now = Math.floor(Date.now() / 1000)
+  const upcoming = []
+  const past = []
+  for (const p of events) {
+    const cutoff = p.endUnix ?? p.startUnix
+    if (cutoff >= now) upcoming.push(p)
+    else past.push(p)
+  }
+  upcoming.sort((a, b) => a.startUnix - b.startUnix)
+  past.sort((a, b) => b.startUnix - a.startUnix)
+  return { upcoming, past }
+}
+
+export default function MyMeetupsModal({ user, onClose, onBoostMeetup }) {
+  const pubkey = user?.pubkey
+  const [events, setEvents] = useState(null)   // null = loading, [] = empty, [...] = loaded
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!pubkey) { setEvents([]); return }
+    let cancelled = false
+    setError('')
+    setEvents(null)
+    ;(async () => {
+      try {
+        const ndk = getNDK()
+        await connectAndWait(ndk, 3000).catch(() => {})
+        const set = await ndk.fetchEvents({
+          kinds: [KIND_DATE_EVENT, KIND_TIME_EVENT],
+          authors: [pubkey],
+          limit: 200,
+        })
+        if (cancelled) return
+        // Same (kind, pubkey, d) may arrive from multiple relays as
+        // separate revisions — keep the newest per coordinate.
+        const byCoord = new Map()
+        for (const ev of set || []) {
+          const d = ev.tags?.find(t => t[0] === 'd')?.[1]
+          if (!d) continue
+          const key = `${ev.kind}:${ev.pubkey}:${d}`
+          const prev = byCoord.get(key)
+          if (!prev || (ev.created_at || 0) > (prev.created_at || 0)) byCoord.set(key, ev)
+        }
+        const parsed = []
+        for (const ev of byCoord.values()) {
+          const p = parseCalendarEvent({
+            id: ev.id, pubkey: ev.pubkey, kind: ev.kind,
+            tags: ev.tags || [], content: ev.content || '', created_at: ev.created_at,
+          })
+          if (p) parsed.push(p)
+        }
+        setEvents(parsed)
+      } catch (e) {
+        if (cancelled) return
+        console.warn('[MyMeetupsModal] fetch failed', e)
+        setError('Couldn’t load your meetups. Please try again.')
+        setEvents([])
+      }
+    })()
+    return () => { cancelled = true }
+  }, [pubkey])
+
+  const handleBoost = (p) => {
+    if (!p?.naddr) return
+    const msg = interpolateNaddr(BOOST_EXISTING_TEMPLATE, p.naddr)
+    onClose?.()
+    onBoostMeetup?.(msg)
+  }
+
+  return (
+    <MeetupModalChrome
+      ariaLabel="Boost one of your meetups"
+      onClose={onClose}
+      maxWidth="34rem"
+    >
+      <div className="lb-card">
+        <h2 className="lb-card-heading">Your meetups on Nostr</h2>
+        <p className="lb-muted" style={{ marginTop: '0.25rem', marginBottom: '1rem' }}>
+          Pick one to boost — your event’s naddr is included with the boost message.
+        </p>
+
+        {events === null && <LoadingRows />}
+
+        {error && <div className="lb-error">{error}</div>}
+
+        {events && events.length === 0 && !error && (
+          <p style={{ color: 'var(--muted)', fontSize: '0.92rem', fontStyle: 'italic' }}>
+            You haven’t published a meetup yet. Use “Create new” to publish one, or paste an naddr if it lives under a different npub.
+          </p>
+        )}
+
+        {events && events.length > 0 && (
+          <Sections events={events} onBoost={handleBoost} />
+        )}
+      </div>
+    </MeetupModalChrome>
+  )
+}
+
+function Sections({ events, onBoost }) {
+  const { upcoming, past } = splitFuturePast(events)
+  return (
+    <>
+      {upcoming.length > 0 && (
+        <Group label={`Upcoming (${upcoming.length})`}>
+          {upcoming.map(p => <Row key={p.naddr || p.id} p={p} onBoost={onBoost} />)}
+        </Group>
+      )}
+      {past.length > 0 && (
+        <Group label={`Past (${past.length})`} faded>
+          {past.map(p => <Row key={p.naddr || p.id} p={p} onBoost={onBoost} />)}
+        </Group>
+      )}
+    </>
+  )
+}
+
+function Group({ label, faded, children }) {
+  return (
+    <div style={{ marginTop: '0.5rem', opacity: faded ? 0.85 : 1 }}>
+      <div style={{
+        fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em',
+        color: 'var(--muted)', fontWeight: 600,
+        margin: '0.85rem 0 0.5rem',
+      }}>
+        {label}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function Row({ p, onBoost }) {
+  return (
+    <div className="lb-meetup-row">
+      <div className="lb-meetup-row-body">
+        <div className="lb-meetup-row-title">{p.title || 'Untitled meetup'}</div>
+        <div className="lb-meetup-row-meta">
+          {formatWhen(p)}{p.location ? ` · ${p.location}` : ''}
+        </div>
+      </div>
+      <button type="button" className="lb-meetup-row-boost" onClick={() => onBoost(p)}>
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" />
+        </svg>
+        Boost
+      </button>
+    </div>
+  )
+}
+
+function LoadingRows() {
+  return (
+    <div style={{ display: 'grid', gap: '0.55rem' }}>
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} className="lb-skeleton" style={{ height: '54px' }} />
+      ))}
+    </div>
+  )
+}

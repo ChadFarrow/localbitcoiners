@@ -95,7 +95,7 @@ function renderEmpty(container, msg) {
   const coords = [...naddrByCoord.keys()]
   if (!coords.length) {
     hideLoading()
-    renderEmpty(upcomingEl, 'No meetups have been boosted yet.')
+    renderEmpty(upcomingEl, 'No boosted meetups right now — Boost your next meetup here!')
     return
   }
 
@@ -150,7 +150,7 @@ function renderEmpty(container, msg) {
   if (upcoming.length) {
     upcomingEl.appendChild(renderList(upcoming))
   } else {
-    renderEmpty(upcomingEl, 'No upcoming meetups right now — check back soon.')
+    renderEmpty(upcomingEl, 'No boosted meetups right now — Boost your next meetup here!')
   }
   if (past.length && pastEl && pastWrap) {
     pastEl.appendChild(renderList(past))

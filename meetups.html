@@ -301,32 +301,116 @@
       opacity: 0.75;
     }
 
-    /* ── Composer wrapper ── */
-    .composer-wrap {
+    /* Force the light color-scheme on meetup modals so native date/time
+       pickers render light (the modals are mounted on document.body and
+       could otherwise inherit a dark hint). */
+    body { color-scheme: light; }
+
+    /* ── "Boost a Meetup" bar + drawer ──
+       Sits between the page header and the boosted-meetups list.
+       Click the bar → inline drawer with 4 entry-point buttons. Each
+       button triggers a modal via the login-widget. */
+    .boost-bar-wrap {
       max-width: 700px;
       margin: 0 auto;
-      padding: 2.5rem 1.25rem 4rem;
+      padding: 1.75rem 1.25rem 0;
     }
-
-    /* Composer cards inside the slot follow the LB cream design system
-       (defined in the widget's styles.css). Force the light color
-       scheme so native date/time pickers render light rather than
-       inheriting any prior dark hint. */
-    #lb-event-composer-slot { color-scheme: light; }
-
-    .composer-heading {
+    .boost-bar {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--orange);
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(30, 58, 95, 0.06);
+      overflow: hidden;
+    }
+    .boost-bar-summary {
+      list-style: none;
+      cursor: pointer;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      padding: 1rem 1.15rem;
+      transition: background 0.15s;
+    }
+    .boost-bar-summary::-webkit-details-marker { display: none; }
+    .boost-bar-summary::marker { content: ''; }
+    .boost-bar-summary:hover { background: #fdf6e2; }
+    .boost-bar-bolt {
+      width: 22px; height: 22px;
+      flex-shrink: 0;
+      color: var(--orange);
+    }
+    .boost-bar-text {
+      flex: 1;
+      min-width: 0;
+      line-height: 1.25;
+    }
+    .boost-bar-label {
+      display: block;
       font-family: 'Playfair Display', Georgia, serif;
-      font-size: clamp(1.4rem, 3vw, 1.9rem);
+      font-size: 1.1rem;
       font-weight: 700;
       color: var(--navy);
-      text-align: center;
     }
-    .composer-sub {
-      max-width: 560px;
-      margin: 0.5rem auto 1.75rem;
-      text-align: center;
+    .boost-bar-sub {
+      display: block;
+      font-size: 0.82rem;
       color: var(--muted);
-      font-size: 0.98rem;
+      margin-top: 0.05rem;
+    }
+    .boost-bar-caret {
+      flex-shrink: 0;
+      color: var(--muted);
+      font-size: 0.95rem;
+      transition: transform 0.18s ease;
+    }
+    .boost-bar[open] .boost-bar-caret { transform: rotate(180deg); }
+    .boost-bar-drawer {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.6rem;
+      padding: 0 1.15rem 1.1rem;
+      border-top: 1px solid var(--border);
+      padding-top: 1rem;
+    }
+    .boost-bar-btn {
+      background: var(--cream);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 0.7rem 0.85rem;
+      font: inherit;
+      font-size: 0.9rem;
+      color: var(--text);
+      cursor: pointer;
+      text-align: left;
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .boost-bar-btn:hover {
+      background: #ffffff;
+      border-color: var(--orange);
+    }
+    .boost-bar-btn:disabled {
+      opacity: 0.55;
+      cursor: wait;
+    }
+    .boost-bar-btn-title {
+      font-weight: 700;
+      color: var(--navy);
+      font-size: 0.95rem;
+    }
+    .boost-bar-btn-sub {
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+    @media (max-width: 540px) {
+      .boost-bar-drawer { grid-template-columns: 1fr; }
+      .boost-bar-summary { padding: 0.9rem 1rem; gap: 0.7rem; }
+      .boost-bar-label { font-size: 1rem; }
     }
 
     /* ── Meetups list ── */
@@ -410,9 +494,6 @@
       nav ul { justify-content: center; gap: 0.25rem; flex-wrap: wrap; }
       nav ul li a { padding: 0.3rem 0.7rem; font-size: 0.8rem; }
     }
-    @media (max-width: 600px) {
-      .composer-wrap { padding: 1.75rem 0.85rem 3rem; }
-    }
     @media (max-width: 420px) {
       .nav-logo { width: 36px; height: 36px; }
       .nav-site-name { font-size: 0.92rem; }
@@ -468,8 +549,42 @@
 <!-- ══════════════════════════════ PAGE HEADER ══════════════════════════════ -->
 <section class="page-header">
   <h1>Meetups</h1>
-  <p>Meetups boosted by Local Bitcoiners Supporters - Submit Your Meetup Here!</p>
+  <p>Bitcoin meetups boosted by Local Bitcoiners listeners — pulled live from Nostr.</p>
   <p class="page-header-note">(this page is updated daily)</p>
+</section>
+
+<!-- ══════════════════════════════ "BOOST A MEETUP" BAR + DRAWER ══════════════════════════════ -->
+<section class="boost-bar-wrap">
+  <details class="boost-bar" id="boost-bar">
+    <summary class="boost-bar-summary">
+      <svg class="boost-bar-bolt" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path fill-rule="evenodd" d="M14.615 1.595a.75.75 0 0 1 .359.852L12.982 9.75h7.268a.75.75 0 0 1 .548 1.262l-10.5 11.25a.75.75 0 0 1-1.272-.71l1.992-7.302H3.75a.75.75 0 0 1-.548-1.262l10.5-11.25a.75.75 0 0 1 .913-.143Z" clip-rule="evenodd"/>
+      </svg>
+      <span class="boost-bar-text">
+        <span class="boost-bar-label">Boost a Meetup</span>
+        <span class="boost-bar-sub">Boost an existing meetup event or create a listing here</span>
+      </span>
+      <span class="boost-bar-caret" aria-hidden="true">▾</span>
+    </summary>
+    <div class="boost-bar-drawer">
+      <button type="button" class="boost-bar-btn" data-lb-meetup-trigger="my">
+        <span class="boost-bar-btn-title">My meetups</span>
+        <span class="boost-bar-btn-sub">Boost a meetup already published from your npub</span>
+      </button>
+      <button type="button" class="boost-bar-btn" data-lb-meetup-trigger="search">
+        <span class="boost-bar-btn-title">Search Nostr</span>
+        <span class="boost-bar-btn-sub">Find a meetup by account name or npub</span>
+      </button>
+      <button type="button" class="boost-bar-btn" data-lb-meetup-trigger="paste">
+        <span class="boost-bar-btn-title">Event naddr or External URL</span>
+        <span class="boost-bar-btn-sub">Boost a meetup by its Nostr address or any link</span>
+      </button>
+      <button type="button" class="boost-bar-btn" data-lb-meetup-trigger="create">
+        <span class="boost-bar-btn-title">+ Create new</span>
+        <span class="boost-bar-btn-sub">Publish a new NIP-52 meetup to Nostr</span>
+      </button>
+    </div>
+  </details>
 </section>
 
 <!-- ══════════════════════════════ MEETUPS LIST ══════════════════════════════ -->
@@ -487,16 +602,6 @@
     <summary>Past Meetups</summary>
     <div id="meetups-past"></div>
   </details>
-</section>
-
-<!-- ══════════════════════════════ COMPOSER ══════════════════════════════ -->
-<section class="composer-wrap">
-  <h2 class="composer-heading">Submit a Meetup</h2>
-  <p class="composer-sub">Sign in with Nostr to publish your Bitcoin meetup as a NIP-52 calendar event — viewable on any Nostr client.</p>
-  <div id="lb-event-composer-slot">
-    <!-- Composer + "boost an existing meetup" card are both mounted
-         here by the login-widget bundle once it loads. -->
-  </div>
 </section>
 
 <!-- ══════════════════════════════ FOOTER ══════════════════════════════ -->
@@ -592,23 +697,41 @@
     }
   }
 
-  // Composer — the widget's mount() populates #lb-event-composer-slot
-  // once the bundle lands. Trigger that load when the composer nears
-  // the viewport so the form is ready by the time the user reaches it
-  // (fires immediately if it's already on-screen).
-  const composerSlot = document.getElementById('lb-event-composer-slot');
-  if (composerSlot) {
-    if ('IntersectionObserver' in window) {
-      const io = new IntersectionObserver((entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          io.disconnect();
-          ensureWidgetLoaded().catch((e) => console.warn('[lb] composer widget load failed', e));
+  // "Boost a Meetup" drawer — pre-warm the widget bundle when the user
+  // opens the drawer (signals intent), then route each button click to
+  // the matching modal. The widget's openMeetupModal handles the login
+  // gate via setPendingAction so a logged-out user gets a login prompt,
+  // not an empty modal.
+  const boostBar = document.getElementById('boost-bar');
+  if (boostBar) {
+    let prewarmed = false;
+    boostBar.addEventListener('toggle', () => {
+      if (boostBar.open && !prewarmed) {
+        prewarmed = true;
+        ensureWidgetLoaded().catch((e) => console.warn('[lb] drawer prewarm failed', e));
+      }
+    });
+    const triggers = boostBar.querySelectorAll('[data-lb-meetup-trigger]');
+    triggers.forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const kind = btn.getAttribute('data-lb-meetup-trigger');
+        if (!kind) return;
+        btn.disabled = true;
+        try {
+          await ensureWidgetLoaded();
+          if (window.LBLogin?.openMeetupModal) {
+            window.LBLogin.openMeetupModal(kind);
+          }
+          // Collapse the drawer once the modal is opening so it doesn't
+          // sit visually behind the modal when the user dismisses it.
+          boostBar.open = false;
+        } catch (e) {
+          console.error('[lb] meetup widget load failed', e);
+        } finally {
+          btn.disabled = false;
         }
-      }, { rootMargin: '600px 0px' });
-      io.observe(composerSlot);
-    } else {
-      ensureWidgetLoaded().catch((e) => console.warn('[lb] composer widget load failed', e));
-    }
+      });
+    });
   }
 })();
 </script>

@@ -1,11 +1,11 @@
 /**
- * BoostExistingEvent — secondary card on /newevent.
+ * BoostExistingEvent — "boost an existing meetup" card.
  *
- * For organizers whose meetup is already published on Nostr (e.g. via
- * Flockstr): paste the naddr, optionally tweak the boost message, and
- * the existing show-boost modal opens with the assembled boostagram
- * message prefilled. The naddr is substituted in (or appended) via the
- * shared interpolateNaddr helper.
+ * Accepts EITHER a Nostr calendar-event naddr (kind 31922/31923) or an
+ * external URL (meetup.com, Eventbrite, anywhere). The boost-the-show
+ * modal opens prefilled with the assembled boostagram message either
+ * way; only naddr-based meetups show up in the boosted-meetup list on
+ * /meetups (that list is intentionally NIP-52-only).
  *
  * Visually styled with the LB cream-card design system; see styles.css.
  */
@@ -22,6 +22,34 @@ const NO_AUTOFILL = {
   'data-form-type': 'other',
 }
 
+// Detect what the user pasted. URL → external link; naddr1… → Nostr
+// calendar event; anything else (or nostr:naddr decoded to something
+// other than naddr) → error. Both the URL and naddr branches feed the
+// same boost-the-show modal, just with different placeholder substitution.
+function classify(raw) {
+  const s = String(raw || '').trim().replace(/^nostr:/i, '')
+  if (!s) return { kind: 'empty' }
+  if (/^https?:\/\//i.test(s)) {
+    try {
+      // Validates structure (rejects "https://"" with nothing after, etc.).
+      // eslint-disable-next-line no-new
+      new URL(s)
+      return { kind: 'url', value: s }
+    } catch {
+      return { kind: 'invalid', reason: 'That URL doesn’t look right — include the full https://… address.' }
+    }
+  }
+  try {
+    const decoded = nip19.decode(s)
+    if (decoded.type !== 'naddr') {
+      return { kind: 'invalid', reason: 'That’s a Nostr identifier but not a calendar event address (naddr1…).' }
+    }
+    return { kind: 'naddr', value: s }
+  } catch {
+    return { kind: 'invalid', reason: 'Couldn’t recognize that — paste an naddr1… string or a full https://… URL.' }
+  }
+}
+
 export default function BoostExistingEvent({
   sessionUser,
   onRequestSignIn,
@@ -33,29 +61,36 @@ export default function BoostExistingEvent({
 
   const handleBoost = () => {
     setError('')
-    const trimmed = String(input || '').trim().replace(/^nostr:/i, '')
-    if (!trimmed) {
-      setError('Paste your event’s naddr to boost.')
+    const cls = classify(input)
+    if (cls.kind === 'empty') {
+      setError('Paste your event’s naddr or URL to boost.')
       return
     }
-    try {
-      const decoded = nip19.decode(trimmed)
-      if (decoded.type !== 'naddr') {
-        setError('That doesn’t look like an event address (naddr1…).')
-        return
-      }
-    } catch {
-      setError('Couldn’t decode that — paste an naddr1… string.')
+    if (cls.kind === 'invalid') {
+      setError(cls.reason)
       return
     }
     if (!sessionUser?.pubkey) {
       onRequestSignIn?.()
       return
     }
-    // Substitute {naddr} placeholders in the (possibly edited) message
-    // with the real naddr. Same helper the new-event composer uses for
-    // its boost option, so the two flows have consistent behaviour.
-    const prefilled = interpolateNaddr(message, trimmed)
+    // For naddrs, interpolateNaddr prefixes the value with `nostr:` when
+    // appending; for URLs we want the URL inline as-is. Same {naddr}
+    // placeholder behavior either way (replace where the user kept it,
+    // otherwise append at the end).
+    let prefilled
+    if (cls.kind === 'naddr') {
+      prefilled = interpolateNaddr(message, cls.value)
+    } else {
+      const t = String(message || '')
+      if (t.includes('{naddr}')) {
+        prefilled = t.replaceAll('{naddr}', cls.value)
+      } else if (t.includes(cls.value)) {
+        prefilled = t
+      } else {
+        prefilled = t.trim() + (t.trim() ? '\n\n' : '') + cls.value
+      }
+    }
     onOpenShowBoostWithMessage?.(prefilled)
   }
 
@@ -63,17 +98,21 @@ export default function BoostExistingEvent({
     <div className="lb-card relative space-y-3">
       <PasswordManagerHoneypot />
       <h2 className="lb-card-heading">
-        Is your meetup already on Nostr? Boost it here!
+        Boost an existing meetup
       </h2>
+      <p className="lb-muted" style={{ fontSize: '0.85rem' }}>
+        Paste a Nostr calendar event (naddr1…) or any external URL — meetup.com,
+        Eventbrite, your group’s site, etc.
+      </p>
       <div>
         <label className="lb-label" style={{ textTransform: 'none', letterSpacing: 0 }}>
-          Calendar addressable event ID (naddr1) on nostr
+          Event naddr or external URL
         </label>
         <input
           type="search"
           value={input}
           onChange={e => { setError(''); setInput(e.target.value) }}
-          placeholder="naddr1… (or nostr:naddr1…)"
+          placeholder="naddr1… or https://…"
           spellCheck="false"
           autoCapitalize="off"
           autoCorrect="off"
@@ -81,6 +120,10 @@ export default function BoostExistingEvent({
           className="lb-input"
           style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '0.78rem' }}
         />
+        <p style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: '0.35rem' }}>
+          External URLs <strong>won’t appear in the listings</strong> on this page (those are
+          reserved for NIP-52 calendar events) — but the boost still goes through.
+        </p>
       </div>
       <div>
         <label className="lb-label">
@@ -94,11 +137,7 @@ export default function BoostExistingEvent({
           {...NO_AUTOFILL}
         />
         <p style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: '0.35rem' }}>
-          Event{' '}
-          <code style={{ background: 'var(--white)', padding: '0.05rem 0.3rem', borderRadius: '4px', border: '1px solid var(--border)' }}>
-            {'{naddr}'}
-          </code>{' '}
-          will be included with your boost message
+          Your naddr or URL will be included with your boost message
         </p>
       </div>
       {error && <div className="lb-error">{error}</div>}
