@@ -7,3 +7,10 @@
 # reach users instead of being shadowed by a stale CDN/browser copy.
 /sw.js
   Cache-Control: no-cache, no-store, must-revalidate
+
+# NIP-05 verification. CORS wildcard is required by the spec so browser
+# clients can fetch the file cross-origin; without it most clients
+# silently fail verification.
+/.well-known/nostr.json
+  Access-Control-Allow-Origin: *
+  Content-Type: application/json
