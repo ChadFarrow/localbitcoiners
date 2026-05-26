@@ -479,15 +479,168 @@ def write_sats_json():
 # Value-split breakdown
 #
 # Each row's total_sats is apportioned into 5 recipient buckets (Reed, Rev,
-# aquafox/ad-budget, guests, Fountain) by applying the hand-maintained ruleset
-# in data/value-splits.csv. This is *calculated, not measured* — our node only
-# ever sees its own leg of a payment, never the per-recipient breakdown — so
-# the breakdown is the ruleset applied to the reconstructed total. The five
-# columns sum exactly to total_sats; rounding drift lands in the largest
-# bucket. Rows with no total_sats or no matching rule get blank split columns.
+# aquafox/ad-budget, guests, Fountain). The breakdown is calculated, not
+# measured — our node only ever sees its own leg of a payment — so we apply
+# the canonical split to the reconstructed total. The five columns sum
+# exactly to total_sats; rounding drift lands in the largest bucket. Rows
+# with no total_sats or no matching rule get blank split columns.
+#
+# Sources of truth, in order of precedence:
+#
+#   1. RSS feed (era 3, ≥ ERA3_CUTOFF) — episode/show boosts derive their
+#      split from the Fountain feed's <podcast:value> blocks (per-item for
+#      episode boosts, channel-level for show boosts). For source=="website"
+#      rows we additionally apply the boostbot@fountain.fm → aquafox override
+#      that the website client (login-widget/src/lib/recipientOverrides.js)
+#      applies before payment, so the recorded split matches what was
+#      actually routed.
+#
+#   2. data/value-splits.csv (era 1 + era 2 history, plus lb_donation) —
+#      hand-maintained fallback for splits that predate the RSS-per-item
+#      regime, or where no RSS analogue exists (general LB donations).
+#
+# The website's middleware (functions/_middleware.js parseValueBlock /
+# parseSplits / matchChannelValue / matchItemValue) does the equivalent
+# parse live at boost time; the helpers here are the Python port. Keep
+# the two implementations in agreement.
 # ---------------------------------------------------------------------------
 
 SPLIT_COLUMNS = ["reed_sats", "rev_sats", "aquafox_sats", "guests_sats", "fountain_sats"]
+
+# Era-3 boundary: from this moment on, each episode's split lives in its
+# own <podcast:value> item block in the RSS feed. Boosts settling at/after
+# this timestamp use RSS-derived splits; older boosts fall back to the
+# era-1/era-2 rules in data/value-splits.csv.
+ERA3_CUTOFF = "2026-04-20T20:23:25Z"
+
+# Bucket mapping — Lightning address → split-column. Anything not listed
+# here is treated as a guest. Case-insensitive (lud16 is technically
+# case-sensitive but every wallet treats it as insensitive; a stray
+# uppercase in RSS shouldn't misroute a bucket).
+BUCKET_BY_ADDRESS = {
+    "reed@getalby.com":              "reed_sats",
+    "revhodl@minibits.cash":         "rev_sats",
+    "aquafox30@primal.net":          "aquafox_sats",
+    "boostbot@fountain.fm":          "fountain_sats",
+    "localbitcoiners@getalby.com":   "reed_sats",   # legacy node lud16 (era-3 RSS history)
+}
+
+# Per-host substitutions applied to RSS-derived splits before bucket
+# mapping, only for source=="website" rows. Mirrors LNADDRESS_OVERRIDES
+# in login-widget/src/lib/recipientOverrides.js — the website client
+# redirects Fountain's 2% leg to aquafox before payment, so our stats
+# need to record where the sats actually went, not what RSS originally
+# attributed.
+WEBSITE_RECIPIENT_OVERRIDES = {
+    "boostbot@fountain.fm": "aquafox30@primal.net",
+}
+
+
+def _parse_value_block_xml(value_xml):
+    """Parse one <podcast:value>…</podcast:value> XML chunk into a list of
+    recipient dicts: {address, weight}. Ignores element type (lnaddress vs
+    node) — the attribution percentage applies regardless of payment rail.
+    Returns [] if the chunk has no usable recipients."""
+    if not value_xml:
+        return []
+    out = []
+    for m in re.finditer(r'<podcast:valueRecipient\b([^>]*?)/?>', value_xml):
+        attrs = m.group(1)
+        addr = re.search(r'\baddress=["\']([^"\']*)["\']', attrs)
+        split = re.search(r'\bsplit=["\']([^"\']*)["\']', attrs)
+        if not addr or not split:
+            continue
+        try:
+            weight = float(split.group(1))
+        except ValueError:
+            continue
+        if weight <= 0:
+            continue
+        out.append({"address": addr.group(1).strip(), "weight": weight})
+    return out
+
+
+def _match_channel_value(rss):
+    """Channel-level <podcast:value> lives outside any <item>. Returns the
+    first one that precedes the first <item>, or None."""
+    first_item = rss.find("<item")
+    haystack = rss[:first_item] if first_item >= 0 else rss
+    m = re.search(r'<podcast:value\b[^>]*>[\s\S]*?</podcast:value>', haystack)
+    return m.group(0) if m else None
+
+
+def _match_item_value(item_xml):
+    m = re.search(r'<podcast:value\b[^>]*>[\s\S]*?</podcast:value>', item_xml)
+    return m.group(0) if m else None
+
+
+def load_rss_value_blocks():
+    """Fetch the LB RSS feed and return a dict of parsed value blocks keyed by
+    episode number (zero-padded), plus a "__channel__" key for the channel-
+    level block. Each value is the list returned by _parse_value_block_xml
+    (already filtered to weight>0 recipients). Episodes without their own
+    <podcast:value> fall back to "__channel__" at lookup time."""
+    blocks = {}
+    try:
+        rss = requests.get(
+            "https://feeds.fountain.fm/uv4pyDVtNAiiCCx5emOU", timeout=10,
+        ).text
+    except Exception as e:
+        print(f"  [warn] RSS fetch for value blocks failed: {e}")
+        return blocks
+
+    channel_xml = _match_channel_value(rss)
+    if channel_xml:
+        blocks["__channel__"] = _parse_value_block_xml(channel_xml)
+
+    for item_xml in re.findall(r'<item>([\s\S]*?)</item>', rss):
+        title_m = re.search(r'<title[^>]*>([^<]*)</title>', item_xml)
+        title = title_m.group(1).strip() if title_m else ""
+        num = _extract_episode_number(title)
+        if not num:
+            # Title regex doesn't catch "001. ..." titles like fallback_episode_num does.
+            num = fallback_episode_num(title)
+        if not num:
+            continue
+        item_value_xml = _match_item_value(item_xml)
+        if item_value_xml:
+            blocks[num] = _parse_value_block_xml(item_value_xml)
+
+    return blocks
+
+
+def _apply_overrides(recipients, source):
+    """Apply the website's boostbot→aquafox redirect for source=="website"
+    rows, then merge any recipients whose post-override address now matches
+    an existing one (preserves the website client's merge semantics: a
+    single combined leg, weights summed). Returns a new list; input unchanged."""
+    if source != "website":
+        return recipients
+    out = []
+    idx_by_addr = {}
+    for r in recipients:
+        addr = WEBSITE_RECIPIENT_OVERRIDES.get(r["address"], r["address"])
+        if addr in idx_by_addr:
+            out[idx_by_addr[addr]]["weight"] += r["weight"]
+            continue
+        idx_by_addr[addr] = len(out)
+        out.append({"address": addr, "weight": r["weight"]})
+    return out
+
+
+def _buckets_from_recipients(recipients):
+    """Aggregate a recipient list into the 5 fixed buckets, returned as a
+    {bucket: pct} dict where pct values sum to 100. Anything not in
+    BUCKET_BY_ADDRESS is bucketed as a guest. Returns None if the list is
+    empty or sums to zero weight."""
+    total_weight = sum(r["weight"] for r in recipients)
+    if total_weight <= 0:
+        return None
+    pcts = {c: 0.0 for c in SPLIT_COLUMNS}
+    for r in recipients:
+        bucket = BUCKET_BY_ADDRESS.get(r["address"].lower(), "guests_sats")
+        pcts[bucket] += r["weight"] * 100.0 / total_weight
+    return pcts
 
 
 def load_value_splits():
@@ -514,19 +667,13 @@ def load_value_splits():
 
 def _scope_candidates(row):
     """Ordered value-split scopes to try for a sats row — most specific first.
-    Mirrors the scope names in value-splits.csv."""
+    Mirrors the scope names in value-splits.csv. Used only for the era-1/era-2
+    fallback now that era-3 splits come from RSS."""
     source = row.get("source", "") or ""
     if source == "lb_donation":
         return ["lb_donation"]
     if row.get("show_level") == "true":
-        # website show-level boosts use their own 33/33/34 flow; fall back to
-        # the channel-level `show` rule for anything else (Fountain, keysend).
-        if source == "website":
-            return ["show_website", "show"]
         return ["show"]
-    num = row.get("episode_num", "") or ""
-    if num:
-        return [f"episode_{num}", "episode_default"]
     return ["episode_default"]
 
 
@@ -544,12 +691,64 @@ def _match_split_rule(rules, candidates, settled_at):
     return None
 
 
-def apply_value_splits(rows, rules):
-    """Populate the 5 split columns on every row. Calculated by matching the
-    row to a value-splits.csv rule (scope + settled_at era) and apportioning
-    total_sats. Rows with no total_sats or no matching rule get blank columns.
-    Returns (matched_count, unmatched_count)."""
+def _rule_to_pcts(rule):
+    """Convert a value-splits.csv rule dict to the same {bucket: pct} shape
+    that _buckets_from_recipients() returns, so both code paths feed the
+    same downstream apportionment math."""
+    return {
+        "reed_sats":     rule["reed_pct"],
+        "rev_sats":      rule["rev_pct"],
+        "aquafox_sats":  rule["aquafox_pct"],
+        "guests_sats":   rule["guests_pct"],
+        "fountain_sats": rule["fountain_pct"],
+    }
+
+
+def _resolve_pcts(row, rss_blocks, csv_rules):
+    """Pick the right percentage breakdown for a row.
+
+    Era-3 episode/show boosts → RSS. Pre-era-3 (and lb_donation) → CSV. If
+    an era-3 episode has no per-item value block, fall back to the channel-
+    level block. Returns (pcts_dict, source_label) where source_label is a
+    short string for the unmatched-row reporting (so the operator can tell
+    a missing-RSS-item from a missing-CSV-rule).
+    """
+    source     = row.get("source", "") or ""
+    settled_at = row.get("settled_at", "") or ""
+    show_level = row.get("show_level") == "true"
+
+    use_rss = (
+        source != "lb_donation"
+        and settled_at >= ERA3_CUTOFF
+        and rss_blocks
+    )
+
+    if use_rss:
+        if show_level:
+            recipients = rss_blocks.get("__channel__", [])
+            label = "rss(channel)"
+        else:
+            num = row.get("episode_num", "") or ""
+            recipients = rss_blocks.get(num) or rss_blocks.get("__channel__", [])
+            label = f"rss(episode_{num})" if num else "rss(channel)"
+        recipients = _apply_overrides(recipients, source)
+        pcts = _buckets_from_recipients(recipients)
+        if pcts:
+            return pcts, label
+        # Fall through to CSV if RSS lookup turned up nothing usable.
+
+    rule = _match_split_rule(csv_rules, _scope_candidates(row), settled_at)
+    if rule:
+        return _rule_to_pcts(rule), "csv"
+    return None, None
+
+
+def apply_value_splits(rows, rss_blocks, csv_rules):
+    """Populate the 5 split columns on every row. Era-3 episode/show boosts
+    use the RSS feed; pre-era-3 + lb_donation use data/value-splits.csv.
+    Returns (matched, unmatched, unmatched_episode_nums)."""
     matched = unmatched = 0
+    unmatched_nums = Counter()
     for row in rows:
         for c in SPLIT_COLUMNS:
             row[c] = ""
@@ -559,19 +758,13 @@ def apply_value_splits(rows, rules):
             total = 0
         if total <= 0:
             continue
-        rule = _match_split_rule(
-            rules, _scope_candidates(row), row.get("settled_at", "") or "",
-        )
-        if not rule:
+        pcts, _ = _resolve_pcts(row, rss_blocks, csv_rules)
+        if not pcts:
             unmatched += 1
+            num = row.get("episode_num", "") or "(show/blank)"
+            unmatched_nums[num] += 1
             continue
-        buckets = {
-            "reed_sats":     round(total * rule["reed_pct"]     / 100),
-            "rev_sats":      round(total * rule["rev_pct"]      / 100),
-            "aquafox_sats":  round(total * rule["aquafox_pct"]  / 100),
-            "guests_sats":   round(total * rule["guests_pct"]   / 100),
-            "fountain_sats": round(total * rule["fountain_pct"] / 100),
-        }
+        buckets = {c: round(total * pcts[c] / 100) for c in SPLIT_COLUMNS}
         # Absorb rounding drift in the largest bucket so the 5 sum to total.
         drift = total - sum(buckets.values())
         if drift:
@@ -579,7 +772,7 @@ def apply_value_splits(rows, rules):
         for c, v in buckets.items():
             row[c] = v
         matched += 1
-    return matched, unmatched
+    return matched, unmatched, unmatched_nums
 
 
 # ---------------------------------------------------------------------------
@@ -1689,12 +1882,21 @@ def main():
     # ── Combine ──
     all_rows = all_boost_rows + stream_rows + node_stream_rows
 
-    # ── Value-split breakdown — apply the value-splits.csv ruleset ──
+    # ── Value-split breakdown — RSS for era 3, value-splits.csv for the rest ──
+    rss_blocks   = load_rss_value_blocks()
     splits_rules = load_value_splits()
-    split_matched, split_unmatched = apply_value_splits(all_rows, splits_rules)
+    split_matched, split_unmatched, unmatched_nums = apply_value_splits(
+        all_rows, rss_blocks, splits_rules,
+    )
+    rss_ep_count = sum(1 for k in rss_blocks if k != "__channel__")
     print()
-    print(f"Value-split breakdown: {len(splits_rules)} rules loaded → "
+    print(f"Value-split breakdown: {rss_ep_count} RSS episode blocks + "
+          f"{'channel block' if '__channel__' in rss_blocks else 'no channel block'}, "
+          f"{len(splits_rules)} csv fallback rules → "
           f"{split_matched} rows split, {split_unmatched} rows with no matching rule")
+    if unmatched_nums:
+        for num, count in unmatched_nums.most_common():
+            print(f"  [warn] unmatched ({count} rows): episode_num={num}")
 
     # ── Meetups — NIP-52 calendar-event naddrs shared via boost ──
     meetup_rows = extract_meetup_rows(all_boost_rows)
