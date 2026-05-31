@@ -1,8 +1,9 @@
 {
-  "generated_at": "2026-05-30T08:46:29Z",
+  "generated_at": "2026-05-31T08:46:24Z",
   "source": "zaps.csv",
-  "row_count": 101,
+  "row_count": 102,
   "rows": [
+    {"settled_at": "2026-05-30T09:53:44Z", "zap_receipt_id": "eff7e7042a080739689d5369546c795bf3b4724ade4a42356016056f0b8f9db3", "zapped_event_id": "478598425c25845edf1b4f4d3fdae70334c18c777495d2c063ec4d95b0c2dbb4", "sender_npub": "npub15ypxpg429uyjmp0zczuza902chuvvr4pn35wfzv8rx6cej4z8clq6jmpcx", "sender_name": null, "sats": 21, "message": "BULLISH"},
     {"settled_at": "2026-05-29T23:59:42Z", "zap_receipt_id": "6960f0553ec8c5449f6d310121a7c8b57b2ab3af35a112f0a6645a2a05cda21d", "zapped_event_id": "66b518ade3dd82f152c43aca0fe3d3ce4c10450f6296e10d3b9cb5aef3c1337e", "sender_npub": "npub1xgyjasdztryl9sg6nfdm2wcj0j3qjs03sq7a0an32pg0lr5l6yaqxhgu7s", "sender_name": null, "sats": 100, "message": null},
     {"settled_at": "2026-05-29T19:42:34Z", "zap_receipt_id": "47a141b47784999de91d35c08b0d218b31637d1a90a857151daf2e9764a1391e", "zapped_event_id": null, "sender_npub": "npub168h60e5jj0t89kx08fd7x2nee4s2kr0zqqecdrfsdmka9htqn22qepwz7s", "sender_name": null, "sats": 6, "message": null},
     {"settled_at": "2026-05-26T22:05:03Z", "zap_receipt_id": "3b94e8a6f85820d800e434b762bddf536c929518b9cffb973021df4b2d116036", "zapped_event_id": "211de25163bcd2c0be0cfc9e37d57e28b689124c5fa5667cc365ee16b0d956a1", "sender_npub": "npub1tan2cwtf8s7zxvck79qllzaa7smy03y9ftd50gk6jnag2htnslssyfhjmr", "sender_name": null, "sats": 21, "message": "🤘"},
