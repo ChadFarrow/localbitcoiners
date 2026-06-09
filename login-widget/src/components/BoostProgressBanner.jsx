@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { onInFlightChange, getInFlight } from '../lib/boostQueue.js'
 import { requestIdentityOpen } from '../lib/identitySignal.js'
+import { onBoostModalProgressChange, isBoostModalProgressVisible } from '../lib/boostModalSignal.js'
 
 /**
  * Top-of-page banner shown while any boost is actively processing.
@@ -35,6 +36,13 @@ export default function BoostProgressBanner() {
 
   useEffect(() => onInFlightChange(setList), [])
 
+  // When a boost modal is open and showing its own progress view, it's
+  // the primary surface — stand the banner down so the donor doesn't see
+  // it pulsing above the modal. Reappears as the fallback if they close
+  // the modal mid-boost.
+  const [modalProgress, setModalProgress] = useState(() => isBoostModalProgressVisible())
+  useEffect(() => onBoostModalProgressChange(setModalProgress), [])
+
   const activeCount = useMemo(
     () => list.reduce((n, e) => n + (e.status === 'in-flight' ? 1 : 0), 0),
     [list],
@@ -52,6 +60,7 @@ export default function BoostProgressBanner() {
     return () => clearTimeout(t)
   }, [activeCount])
 
+  if (modalProgress) return null
   if (activeCount === 0 && !visible) return null
 
   const label = activeCount === 0

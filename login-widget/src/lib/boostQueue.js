@@ -1,10 +1,17 @@
 /**
  * Background boost orchestration.
  *
- * Send-and-forget: the modal closes when the user clicks Boost,
- * payAllLegs runs in the background here, and that's it. Outcomes
- * aren't persisted — the dropdown surfaces in-flight entries with a
- * "Sending…" indicator that vanishes once the boost settles.
+ * The boost ALWAYS runs here, independent of the React tree — submitBoost
+ * kicks off payAllLegs in a detached async task and returns immediately.
+ * That independence is the safety net: even if the modal unmounts or the
+ * user navigates, the legs already queued keep paying.
+ *
+ * The modal now stays open and watches the run live: submitBoost takes an
+ * `onStatus` callback (forwarded straight into payAllLegs's per-leg status
+ * stream) and returns a `{ localId, settled }` handle whose `settled`
+ * promise resolves with the final payAllLegs result. The in-flight Map +
+ * BoostProgressBanner + IdentityDropdown remain as the FALLBACK surface
+ * for the (now rare) case where the user escapes the modal mid-boost.
  *
  * One exception to silence: when EVERY leg fails (likely a wallet-
  * side problem the user can act on), we fire a one-shot toast so
@@ -21,7 +28,7 @@
  */
 
 import { payAllLegs } from './payAllLegs.js'
-import { SITE_URL, publishSignedKindOne } from './boostagram.js'
+import { SITE_URL, publishSignedKindOne, publishBoostReceipt } from './boostagram.js'
 import { pushToast } from './toast.js'
 
 const MIN_TOTAL_SATS = 1   // floor; modals enforce a higher minimum
@@ -89,15 +96,23 @@ if (typeof window !== 'undefined') {
 }
 
 /**
- * Fire a boost in the background. Returns immediately — caller closes
- * its modal right after, payAllLegs runs to completion regardless.
+ * Fire a boost in the background. Returns immediately with a handle —
+ * payAllLegs runs to completion regardless of what the caller does next.
+ *
+ * The caller (the boost modal) keeps itself open and renders live
+ * progress by passing `onStatus` and awaiting the returned `settled`
+ * promise. A caller that doesn't care can ignore both and let the
+ * fallback banner/dropdown surface the outcome.
  *
  * Validation: rejects nonsense input synchronously rather than
  * silently dropping it on the floor. Modals already validate before
  * calling, so this is defense-in-depth for any other future caller.
  *
- * @returns {boolean} true if the boost was queued, false if input
- *   failed validation.
+ * @param {function} [onStatus] (legIndex, legState) — forwarded into
+ *   payAllLegs; fires on every per-leg state transition.
+ * @returns {{ localId: string, settled: Promise<object|null> } | null}
+ *   A handle whose `settled` resolves to the payAllLegs result (or null
+ *   if it threw); or null if input failed validation.
  */
 export function submitBoost({
   episode,
@@ -109,26 +124,28 @@ export function submitBoost({
   wallet,           // { kind, payInvoice } — NWC client or WebLN adapter
   presigned,        // optional { boostSession, byAddress } from presignAllowlistedLegs
   signedKindOne,    // optional pre-signed kind 1 share-to-feed event
+  onStatus,         // optional (legIndex, legState) — live per-leg progress
+  clientInfo,       // optional { walletProvider, browser } for the receipt
 }) {
   // Defensive validation. The modal already checks these, but if a
   // future caller passes garbage we'd rather refuse than crash inside
   // payAllLegs or send a malformed boost.
   if (!episode || typeof episode !== 'object') {
     console.warn('[boostQueue] submitBoost: missing episode metadata')
-    return false
+    return null
   }
   if (!splits || !Array.isArray(splits.recipients) || splits.recipients.length === 0) {
     console.warn('[boostQueue] submitBoost: empty or invalid recipients list')
-    return false
+    return null
   }
   const sats = Number(totalSats) || 0
   if (sats < MIN_TOTAL_SATS) {
     console.warn('[boostQueue] submitBoost: totalSats below minimum')
-    return false
+    return null
   }
   if (!wallet || typeof wallet.payInvoice !== 'function') {
     console.warn('[boostQueue] submitBoost: wallet adapter unavailable')
-    return false
+    return null
   }
 
   const localId = `local-${++nextLocalCounter}-${Date.now()}`
@@ -140,6 +157,11 @@ export function submitBoost({
     status: 'in-flight',
   })
   notify()
+
+  // Resolved when payAllLegs settles, so the modal can await the final
+  // outcome and flip to its success/partial/failed summary.
+  let resolveSettled
+  const settled = new Promise((resolve) => { resolveSettled = resolve })
 
   ;(async () => {
     let result = null
@@ -155,6 +177,7 @@ export function submitBoost({
         wallet,
         lnurlCache,
         presigned,
+        onStatus,
       })
     } catch (e) {
       // payAllLegs is documented as never-throws; this is belt-and-
@@ -200,7 +223,34 @@ export function submitBoost({
         console.warn('[boostQueue] kind 1 share publish failed', e?.message || e)
       })
     }
+
+    // Always publish the boost receipt — even on full failure. It's the
+    // superset telemetry record (actual-vs-intended sats, per-leg outcome,
+    // wallet/browser); its mere presence/absence also tells the bots
+    // "completed" vs "user closed mid-boost". Fire-and-forget; needs the
+    // per-leg results, so only when payAllLegs actually returned.
+    if (result) {
+      publishBoostReceipt({
+        boostSession: result.boostSession,
+        donorNpub,
+        message,
+        episodeMeta: episode,
+        pageUrl: SITE_URL,
+        walletKind: wallet?.kind || '',
+        walletProvider: clientInfo?.walletProvider || 'unknown',
+        browser: clientInfo?.browser || 'unknown',
+        totalMsatsRequested: sats * 1000,
+        legs: result.legs,
+      }).catch((e) => {
+        console.warn('[boostQueue] boost receipt publish failed', e?.message || e)
+      })
+    }
+
+    // Hand the final result back to whoever's awaiting (the modal's
+    // progress view). Null when payAllLegs threw — caller treats that
+    // as all-failed, same as the toast logic above.
+    resolveSettled(result)
   })()
 
-  return true
+  return { localId, settled }
 }

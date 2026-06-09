@@ -33,9 +33,12 @@ import {
 } from '../lib/boostagram.js'
 import * as wallet from '../lib/wallet.js'
 import { submitBoost } from '../lib/boostQueue.js'
+import { setBoostModalProgressVisible } from '../lib/boostModalSignal.js'
+import { detectBrowser, detectWalletProvider } from '../lib/clientInfo.js'
 import { presignAllowlistedLegs } from '../lib/payAllLegs.js'
 import { shouldPublishMetadata } from '../lib/recipientOverrides.js'
 import BoostExpectations from './BoostExpectations.jsx'
+import BoostProgressView from './BoostProgressView.jsx'
 
 const MIN_SATS = 100
 const MAX_SATS = 5_000_000
@@ -51,6 +54,10 @@ export default function MultiLegBoostForm({
   subtitle = null,
   defaultMessage = '',
   onCancelled,
+  // Reports the in-modal boost lifecycle up to the wrapper so it can
+  // guard its close button: null when idle/settled, or
+  // { active: true, paid, total } while legs are still in flight.
+  onBoostState,
 }) {
   // Cancellation flag for the presign step. Set true when the form's
   // parent begins to close so a slow signer prompt that resolves after
@@ -88,40 +95,95 @@ export default function MultiLegBoostForm({
 
   const [prepareLabel, setPrepareLabel] = useState('')
 
+  // Boost progress lifecycle. 'form' shows the inputs; after the user
+  // hits Boost we flip to 'sending' (live per-leg progress) and then
+  // 'done' (success/partial/failed summary). The boost itself runs in
+  // boostQueue regardless of this state, so unmounting mid-send is safe.
+  const [phase, setPhase] = useState('form')          // 'form' | 'sending' | 'done'
+  const [legStates, setLegStates] = useState([])      // per-recipient onStatus payloads
+  const [result, setResult] = useState(null)          // final payAllLegs result
+  // Recipients + sats for the CURRENT run. Usually the full splitsBundle,
+  // but a retry runs only the failed subset — so the progress view reads
+  // these rather than splitsBundle/amount directly.
+  const [progressRecipients, setProgressRecipients] = useState([])
+  const [progressTotalSats, setProgressTotalSats] = useState(0)
+
+  // Merge a per-leg status update from payAllLegs into legStates by index.
+  // Guarded on cancelledRef so a status arriving after the modal closes
+  // (background queue still running) doesn't setState on an unmounted tree.
+  const handleLegStatus = useCallback((index, legState) => {
+    if (cancelledRef.current) return
+    setLegStates(prev => {
+      const next = prev.slice()
+      next[index] = legState
+      return next
+    })
+  }, [])
+
+  // Report active/settled state up to the wrapper for its close guard.
+  // Deduped via a ref so we only push (→ re-render the wrapper) when the
+  // active flag or paid count actually changes, not on every per-leg
+  // status tick — that churn is what made the modal feel jittery.
+  const lastReportedRef = useRef(null)
+  useEffect(() => {
+    if (!onBoostState) return
+    let next = null
+    if (phase === 'sending') {
+      const paid = legStates.filter(l => l?.status === 'paid').length
+      next = { active: true, paid, total: legStates.length }
+    }
+    const prev = lastReportedRef.current
+    const unchanged = (!prev && !next) ||
+      (prev && next && prev.active === next.active &&
+        prev.paid === next.paid && prev.total === next.total)
+    if (unchanged) return
+    lastReportedRef.current = next
+    onBoostState(next)
+  }, [phase, legStates, onBoostState])
+
+  // Tell the top-of-page banner to stand down while this progress view is
+  // up (it's the primary surface now). progressVisible is a boolean so
+  // the sending→done transition doesn't re-toggle it; cleanup on unmount
+  // flips it back so the banner can take over if the user force-closes.
+  const progressVisible = phase !== 'form'
+  useEffect(() => {
+    setBoostModalProgressVisible(progressVisible)
+    return () => setBoostModalProgressVisible(false)
+  }, [progressVisible])
+
   const allowlistedCount = (splitsBundle?.recipients || [])
     .filter(r => r?.address && shouldPublishMetadata(r.address))
     .length
 
-  async function handleBoost() {
-    setError('')
-    const sats = parseInt(amount, 10)
-    if (!Number.isFinite(sats) || sats < MIN_SATS) {
-      setError(`Minimum boost is ${MIN_SATS} sats (covers splits + fees).`)
-      return
-    }
-    if (sats > MAX_SATS) {
-      setError(`Max ${MAX_SATS.toLocaleString()} sats per boost — split a larger gift across multiple boosts.`)
-      return
-    }
+  // Core boost runner, shared by the initial boost and the retry-failed
+  // path. Presigns (signer prompts) for any allowlisted legs in THIS run's
+  // recipient set, optionally signs the share-to-feed note, then hands off
+  // to the background queue and flips the modal into its live progress
+  // view. Caller is responsible for amount validation.
+  async function runBoost({ recipients, totalWeight, totalSats, includeShare }) {
     if (!wallet.isReady()) {
       setError('Wallet not connected — connect a Lightning wallet from your account menu.')
       return
     }
+    setError('')
 
     const trimmedMessage = message.trim()
     const senderNpub = anonymous ? '' : donorNpub
+    const allowlisted = (recipients || [])
+      .filter(r => r?.address && shouldPublishMetadata(r.address))
+      .length
 
     let presigned = null
     let signedKindOne = null
     try {
-      if (senderNpub && allowlistedCount > 0) {
-        setPrepareLabel(allowlistedCount === 1
+      if (senderNpub && allowlisted > 0) {
+        setPrepareLabel(allowlisted === 1
           ? 'Approve the boost receipt in your signer…'
-          : `Approve ${allowlistedCount} boost receipts in your signer…`)
+          : `Approve ${allowlisted} boost receipts in your signer…`)
         presigned = await presignAllowlistedLegs({
-          recipients: splitsBundle.recipients,
-          totalWeight: splitsBundle.totalWeight,
-          totalMsats: sats * 1000,
+          recipients,
+          totalWeight,
+          totalMsats: totalSats * 1000,
           message: trimmedMessage,
           donorNpub: senderNpub,
           pageUrl: SITE_URL,
@@ -131,7 +193,10 @@ export default function MultiLegBoostForm({
         if (cancelledRef.current) return
       }
 
-      if (shareToFeed && canShareToFeed) {
+      // Share-to-feed only on the initial boost, never on a retry — the
+      // donor already (maybe) posted their note; a retry of a failed leg
+      // shouldn't double-post to their feed.
+      if (includeShare && shareToFeed && canShareToFeed) {
         setPrepareLabel('Approve the share post in your signer…')
         try {
           // buildEpisodeBoostShareTemplate handles missing episode
@@ -139,7 +204,7 @@ export default function MultiLegBoostForm({
           // / no title block when empty), so a single template
           // function works for both the show and per-episode flows.
           const template = buildEpisodeBoostShareTemplate({
-            amountSats: sats,
+            amountSats: totalSats,
             message: trimmedMessage,
             episode: episodeMeta,
             pageUrl: SITE_URL,
@@ -161,23 +226,152 @@ export default function MultiLegBoostForm({
       setPrepareLabel('')
     }
 
-    submitBoost({
+    // Seed this run's progress: one 'pending' row per recipient so the
+    // view renders the full split immediately, before onStatus arrives.
+    setResult(null)
+    setProgressRecipients(recipients)
+    setProgressTotalSats(totalSats)
+    setLegStates((recipients || []).map(() => ({ status: 'pending', msats: null })))
+
+    const handle = submitBoost({
       episode: episodeMeta,
-      splits: splitsBundle,
-      totalSats: sats,
+      splits: { recipients, totalWeight },
+      totalSats,
       message: trimmedMessage,
       donorNpub: senderNpub,
       lnurlCache,
       wallet: wallet.getActiveWallet(),
       presigned,
       signedKindOne,
+      onStatus: handleLegStatus,
+      clientInfo: {
+        walletProvider: detectWalletProvider({ kind: walletStatus.kind, alias: walletStatus.alias }),
+        browser: detectBrowser(),
+      },
     })
 
-    cancelAndClose()
+    // Null only on defensive validation failure inside the queue (the
+    // checks above should already cover it) — stay where we are.
+    if (!handle) {
+      setError('Couldn\'t start your boost — please try again.')
+      return
+    }
+
+    // Stay open and show live progress instead of closing. The boost runs
+    // in the background queue, so even if the user force-closes the modal
+    // it keeps paying (banner + dropdown take over).
+    setPhase('sending')
+    handle.settled.then((r) => {
+      if (cancelledRef.current) return
+      setResult(r)
+      setPhase('done')
+    })
+  }
+
+  async function handleBoost() {
+    setError('')
+    const sats = parseInt(amount, 10)
+    if (!Number.isFinite(sats) || sats < MIN_SATS) {
+      setError(`Minimum boost is ${MIN_SATS} sats (covers splits + fees).`)
+      return
+    }
+    if (sats > MAX_SATS) {
+      setError(`Max ${MAX_SATS.toLocaleString()} sats per boost — split a larger gift across multiple boosts.`)
+      return
+    }
+    await runBoost({
+      recipients: splitsBundle.recipients,
+      totalWeight: splitsBundle.totalWeight,
+      totalSats: sats,
+      includeShare: true,
+    })
+  }
+
+  // Retry a SINGLE failed leg, in place — the modal stays on the done view
+  // and only that row re-runs (failed → working → paid/failed). A leg that
+  // failed will usually fail again on the same wallet, so this is most
+  // useful for transient recipient-side failures; each retry is its own
+  // boost session (own receipt), which the bot reconciles by actual sats.
+  async function handleRetryLeg(index) {
+    const recipient = progressRecipients[index]
+    const current = legStates[index]
+    if (!recipient || current?.status !== 'failed') return
+
+    const totalSats = Math.max(1, Math.round((current?.msats || 0) / 1000))
+    const totalWeight = recipient.splitWeight || 1
+    // Route this single-leg run's status (leg index 0) back onto the
+    // original row so the existing done view updates in place.
+    const onStatus = (_i, ls) => handleLegStatus(index, ls)
+
+    // Optimistic flip so the Retry button is replaced by a spinner instantly.
+    handleLegStatus(index, { ...current, status: 'resolving', error: null })
+
+    if (!wallet.isReady()) {
+      handleLegStatus(index, { ...current, status: 'failed', error: 'wallet not connected' })
+      return
+    }
+
+    const senderNpub = anonymous ? '' : donorNpub
+    let presigned = null
+    try {
+      if (senderNpub && shouldPublishMetadata(recipient.address)) {
+        presigned = await presignAllowlistedLegs({
+          recipients: [recipient],
+          totalWeight,
+          totalMsats: totalSats * 1000,
+          message: message.trim(),
+          donorNpub: senderNpub,
+          pageUrl: SITE_URL,
+          episodeMeta,
+          lnurlCache,
+        })
+        if (cancelledRef.current) return
+      }
+    } catch (e) {
+      // Presign failed — payAllLegs will burner-sign the metadata instead.
+      console.warn('[lb] retry presign failed', e?.message || e)
+    }
+
+    const handle = submitBoost({
+      episode: episodeMeta,
+      splits: { recipients: [recipient], totalWeight },
+      totalSats,
+      message: message.trim(),
+      donorNpub: senderNpub,
+      lnurlCache,
+      wallet: wallet.getActiveWallet(),
+      presigned,
+      signedKindOne: null,
+      onStatus,
+      clientInfo: {
+        walletProvider: detectWalletProvider({ kind: walletStatus.kind, alias: walletStatus.alias }),
+        browser: detectBrowser(),
+      },
+    })
+    // onStatus drives the row to its terminal state; no need to await.
+    if (!handle) {
+      handleLegStatus(index, { ...current, status: 'failed', error: 'could not start retry' })
+    }
   }
 
   const splitsCount = splitsBundle?.recipients?.length || 0
   const walletGone = !walletStatus.connected
+
+  // Once the boost is in flight, the form is replaced by the live
+  // progress view (sending → done). Done closes the modal.
+  if (phase !== 'form') {
+    return (
+      <BoostProgressView
+        recipients={progressRecipients}
+        totalSats={progressTotalSats}
+        legStates={legStates}
+        phase={phase}
+        result={result}
+        onDone={cancelAndClose}
+        onRetryLeg={handleRetryLeg}
+      />
+    )
+  }
 
   if (walletGone) {
     return (

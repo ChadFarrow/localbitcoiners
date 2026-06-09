@@ -20,6 +20,7 @@ import { fetchLnurlMeta } from '../lib/boostagram.js'
 import { lockBodyScroll, unlockBodyScroll } from '../lib/scrollLock.js'
 import { useModalTransition } from '../lib/useModalTransition.js'
 import MultiLegBoostForm from './MultiLegBoostForm.jsx'
+import ConfirmLeaveOverlay from './ConfirmLeaveOverlay.jsx'
 
 const EPISODE_SHARE_TAGLINE = 'Posts a kind 1 note to your followers — the episode + your message + a link back here.'
 
@@ -30,6 +31,18 @@ export default function EpisodeBoostModal({
   splitsBundle,   // { recipients, totalWeight, source }
 }) {
   const { visible, requestClose } = useModalTransition(onClose)
+
+  // Close guard: while legs are in flight, intercept the ✕ with a
+  // confirm step instead of closing outright. Reported up from the form.
+  const [boostState, setBoostState] = useState(null)
+  const [confirmLeave, setConfirmLeave] = useState(false)
+  useEffect(() => {
+    if (!boostState?.active) setConfirmLeave(false)
+  }, [boostState])
+  const guardedClose = () => {
+    if (boostState?.active) setConfirmLeave(true)
+    else requestClose()
+  }
 
   // Resolve every recipient's LNURL endpoint in parallel as soon as
   // the modal opens. By the time the user finishes typing the amount,
@@ -72,15 +85,15 @@ export default function EpisodeBoostModal({
       />
 
       <div
-        className="fixed inset-0 z-[71] flex items-start sm:items-center justify-center p-3 sm:p-4 overflow-y-auto overflow-x-hidden"
+        className="fixed inset-0 z-[71] flex items-center justify-center p-3 sm:p-4 overflow-hidden"
         role="dialog"
         aria-label={headerTitle}
       >
-        <div className={`bg-neutral-900 border border-neutral-700 rounded-lg w-full max-w-sm flex flex-col shadow-[0_25px_60px_-12px_rgba(0,0,0,0.8),0_0_0_1px_rgba(255,255,255,0.04)] my-4 sm:my-8 transition-[opacity,transform] duration-200 ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}>
-          <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-neutral-800">
+        <div className={`relative bg-neutral-900 border border-neutral-700 rounded-lg w-full max-w-lg max-h-[calc(100dvh-1.5rem)] sm:max-h-[calc(100dvh-2rem)] flex flex-col shadow-[0_25px_60px_-12px_rgba(0,0,0,0.8),0_0_0_1px_rgba(255,255,255,0.04)] transition-[opacity,transform] duration-200 ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}>
+          <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-neutral-800 shrink-0">
             <h2 className="text-sm font-semibold text-neutral-200">{headerTitle}</h2>
             <button
-              onClick={requestClose}
+              onClick={guardedClose}
               className="text-neutral-500 hover:text-neutral-300 transition-colors text-lg leading-none"
               aria-label="Close"
             >
@@ -88,7 +101,7 @@ export default function EpisodeBoostModal({
             </button>
           </div>
 
-          <div className="px-4 sm:px-6 py-5 space-y-4 flex-1">
+          <div className="px-4 sm:px-6 py-5 space-y-4 flex-1 min-h-0 overflow-y-auto">
             <MultiLegBoostForm
               user={user}
               splitsBundle={splitsBundle}
@@ -98,8 +111,18 @@ export default function EpisodeBoostModal({
               lnurlCache={lnurlCache}
               subtitle={episode?.title || null}
               onCancelled={requestClose}
+              onBoostState={setBoostState}
             />
           </div>
+
+          {confirmLeave && boostState?.active && (
+            <ConfirmLeaveOverlay
+              paid={boostState.paid}
+              total={boostState.total}
+              onStay={() => setConfirmLeave(false)}
+              onLeave={requestClose}
+            />
+          )}
         </div>
       </div>
     </>

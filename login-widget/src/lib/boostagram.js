@@ -386,6 +386,109 @@ export async function publishDonationBoostagram({
   return publishSignedBoostagram(signedEvent)
 }
 
+// ─── Kind 30078 boost receipt — one per boost session ───────────────────────
+// Published AFTER payAllLegs, ALWAYS (even on full failure), as a superset
+// of the per-leg donation_boostagram events plus the outcome layer. Lets
+// the bots (a) credit only sats ACTUALLY sent and (b) treat a boost whose
+// per-leg 30078s exist but whose receipt is MISSING as "user closed
+// mid-boost". Burner-signed so there's no post-payment signer prompt — the
+// donor npub rides as a CLAIMED `sender` tag, not cryptographic proof.
+
+/**
+ * Build the unsigned kind 30078 boost_receipt template.
+ *
+ * @param {object} params
+ * @param {string} params.boostSession        UUID shared with the per-leg events.
+ * @param {string} params.donorNpub           '' for anonymous.
+ * @param {string} params.message             Donor's message, verbatim (content).
+ * @param {{number,title,guid}} params.episodeMeta
+ * @param {string} params.pageUrl
+ * @param {string} params.walletKind          'nwc' | 'webln'.
+ * @param {string} params.walletProvider      Normalized best-effort label (never the raw alias).
+ * @param {string} params.browser             Coarse browser/OS label.
+ * @param {number} params.totalMsatsRequested Intended total (sats×1000).
+ * @param {Array<{recipient:{address:string},msats:number,status:string,paymentHash:?string}>} params.legs
+ */
+export function buildBoostReceiptTemplate({
+  boostSession,
+  donorNpub,
+  message,
+  episodeMeta,
+  pageUrl,
+  walletKind,
+  walletProvider,
+  browser,
+  totalMsatsRequested,
+  legs = [],
+}) {
+  const safeMessage = typeof message === 'string'
+    ? message.slice(0, MAX_BOOSTAGRAM_MESSAGE_CHARS)
+    : ''
+  const paidLegs = legs.filter(l => l?.status === 'paid')
+  const failedCount = legs.filter(l => l?.status === 'failed').length
+  const amountPaid = paidLegs.reduce((acc, l) => acc + (l?.msats || 0), 0)
+  const outcome = legs.length > 0 && paidLegs.length === legs.length
+    ? 'paid'
+    : paidLegs.length > 0 ? 'partial' : 'failed'
+
+  const tags = [
+    ['d', boostSession],
+    ['app', 'localbitcoiners.com', '1.0.0'],
+    ['client', 'localbitcoiners.com'],
+    ['type', 'boost_receipt'],
+    ['boost_session', boostSession],
+    ['sender', donorNpub || ''],
+    ['wallet', walletKind || ''],
+    ['wallet_provider', walletProvider || 'unknown'],
+    ['browser', browser || 'unknown'],
+    ['url', pageUrl],
+    ['episode', String(episodeMeta?.number ?? '')],
+    ['episode_title', episodeMeta?.title || ''],
+    ['item_guid', episodeMeta?.guid || ''],
+    ['show', 'Local Bitcoiners'],
+    ['amount', String(totalMsatsRequested || 0)],
+    ['amount_paid', String(amountPaid)],
+    ['legs', String(legs.length)],
+    ['legs_paid', String(paidLegs.length)],
+    ['legs_failed', String(failedCount)],
+    ['outcome', outcome],
+  ]
+  // One per recipient: [lud16, amount_msats, status, payment_hash("" if unpaid)].
+  for (const l of legs) {
+    tags.push([
+      'leg_result',
+      l?.recipient?.address || '',
+      String(l?.msats || 0),
+      l?.status || 'failed',
+      l?.paymentHash || '',
+    ])
+  }
+
+  return {
+    kind: 30078,
+    created_at: Math.floor(Date.now() / 1000),
+    content: safeMessage,
+    tags,
+  }
+}
+
+/**
+ * Build, burner-sign, and publish a boost receipt. Fire-and-forget from
+ * the queue; never throws (publishSignedBoostagram swallows relay errors).
+ * Uses its own single-use burner key (independent of the legs' key) and
+ * zeroes it immediately after signing.
+ */
+export async function publishBoostReceipt(params) {
+  const template = buildBoostReceiptTemplate(params)
+  const { sk } = generateBurnerKeypair()
+  try {
+    const signed = signDonationBoostagramWithBurner(template, sk)
+    return await publishSignedBoostagram(signed)
+  } finally {
+    if (sk) sk.fill(0)
+  }
+}
+
 // ─── Kind 1 episode-boost share — donor's per-episode feed note ─────────────
 // Defensive caps for RSS-derived fields. The episode title and Fountain
 // URL come from a third-party feed — a compromised proxy or upstream
