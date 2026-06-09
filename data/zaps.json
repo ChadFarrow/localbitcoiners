@@ -1,8 +1,9 @@
 {
-  "generated_at": "2026-06-09T08:46:26Z",
+  "generated_at": "2026-06-09T23:46:06Z",
   "source": "zaps.csv",
-  "row_count": 107,
+  "row_count": 108,
   "rows": [
+    {"settled_at": "2026-06-09T12:55:03Z", "zap_receipt_id": "7f027cea4009c736879e4ef6c1307dec48abfa19d24fdd06a6c91bcca63412c7", "zapped_event_id": "2a425b4ca8a0e0b41942da334d49b0289c97ac8f7b0ce85b5f3bfc82f2d0eacf", "sender_npub": "npub1ljswqt5rr5hpd3ee86n4qp9uvqafk233wlsvndxu7sxg8q889fxse79q6n", "sender_name": null, "sats": 42, "message": "Onward 🫡"},
     {"settled_at": "2026-06-08T23:17:53Z", "zap_receipt_id": "733f60fd96deba18768da6c9828ba4107cb863f99989ed4a67746c6a50279903", "zapped_event_id": "54205961be9053e81ae133e932ee600d7f0c90eae9552364e849e28344f7d7a6", "sender_npub": "npub1jxh2kga4ve8d4ftahcqtqswvk5z5f7ya0k2kx3dm679hmw4ysesqvt62rj", "sender_name": null, "sats": 5, "message": null},
     {"settled_at": "2026-06-08T17:05:30Z", "zap_receipt_id": "cefef26532b7d2990bf5754d40fed1c42af6345cf6b6aa179a352dfeb470437a", "zapped_event_id": "2045ff5cb0d1a9b6e438ad47978f59716246bf1290bf68c9bb20cc6c0e17c269", "sender_npub": "npub15ypxpg429uyjmp0zczuza902chuvvr4pn35wfzv8rx6cej4z8clq6jmpcx", "sender_name": null, "sats": 21, "message": "BULLISH"},
     {"settled_at": "2026-06-07T16:59:01Z", "zap_receipt_id": "8d587c170f22ab8b1fe3b6e782956ff716df01933a946d8817cddae9936c6031", "zapped_event_id": "c2a60686dbdddc2ce09a0685bd29975df271690ca7d6464fd6b399ebd6050f40", "sender_npub": "npub1je9a79rmae4ukvsgu2nkseep35auhmd435spvj25wj894g4s5v4szmurtv", "sender_name": null, "sats": 21, "message": null},
