@@ -9,23 +9,27 @@ This repo holds two related things:
 
 ## Working in this repo
 
-When asked to make changes, look at the file paths in the request to figure
-out which side you're on, and stay on that side unless explicitly told
-otherwise. Website changes don't need to know about the bots, and bot
-changes don't need to know about the website.
+Reed manages both the website and the bots from this directory. When asked
+to make changes, look at the file paths in the request to figure out which
+side you're on. Website changes don't need to know about the bots, and bot
+changes don't need to know about the website — but you're free to work on
+either side.
 
-## ⚠️  Don't modify `bots/` without asking
+## ⚠️  Editing `bots/` is fine — but STOP before any publish or payment
 
-The bots run on a single dedicated machine, sign with real Nostr keys, and
-publish irreversible events to public relays. Reed is the only person who
-runs and maintains them. **Always ask before making changes inside `bots/`,
-even small ones** — including refactors, formatting passes, or "obvious"
-fixes. The bots have subtle invariants that aren't always visible from the
-code (sat-split divisors, episode-id key shapes, state-file conventions),
-and a wrong publish can't be undone.
+You can freely edit bot code, configs, and refactors. The hard line is at
+*execution that can't be undone*: the bots sign with real Nostr keys and
+publish irreversible events to public relays, and they move real sats.
 
-If you're working on the website and a change incidentally touches `bots/`,
-stop and ask first.
+**Confirm with Reed before running anything that signs/publishes Nostr
+events or sends payments** — that includes live bot runs, publish/send
+commands, and the weekly leaderboard publish path. Code edits, dry runs,
+and read-only inspection don't need a check-in.
+
+Watch the subtle invariants that aren't always visible from the code
+(sat-split divisors, episode-id key shapes, state-file conventions) — a
+wrong publish can't be undone, so when a code change feeds the publish
+path, double-check those before you let it run.
 
 ## Bot infrastructure documentation
 
