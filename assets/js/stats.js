@@ -858,6 +858,7 @@
     }
 
     function draw(metric) {
+      if (metric === 'mine') { drawMine(); return; }
       var sorted = episodes.slice()
         .sort(function (a, b) { return b[metric] - a[metric]; })
         .slice(0, 10);
@@ -873,12 +874,63 @@
           : 'Top ' + sorted.length + ' episodes by unique supporters (boosts + streams)';
       }
     }
+
+    // "My npub" — the signed-in user's own per-episode boost totals.
+    // Not logged in → show a prompt and open the login modal; the
+    // onChange hook below redraws the moment they sign in (or a session
+    // restore completes). Anonymous (burner-signed) boosts carry no
+    // sender_npub, so they correctly never show up as "yours".
+    function drawMine() {
+      if (boardSubEl) boardSubEl.textContent = 'Sats you’ve boosted to each episode';
+      var user = window.LBLogin && typeof window.LBLogin.getUser === 'function'
+        ? window.LBLogin.getUser() : null;
+      if (!user || !user.npub) {
+        boardCanvas.innerHTML = '<p class="stats-error">Sign in with Nostr to see the sats you’ve boosted to each episode.</p>';
+        if (window.LBLogin && typeof window.LBLogin.requestLogin === 'function') {
+          window.LBLogin.requestLogin();
+        }
+        return;
+      }
+      var mineByEp = Object.create(null);
+      for (var i = 0; i < rows.length; i++) {
+        var row = rows[i];
+        if (row.episode_num == null) continue;
+        if (row.sender_npub !== user.npub) continue;
+        var num = parseInt(row.episode_num, 10);
+        if (!isFinite(num) || num <= 0) continue;
+        mineByEp[num] = (mineByEp[num] || 0) + (row.total_sats || 0);
+      }
+      var mine = [];
+      for (var k in mineByEp) mine.push({ num: parseInt(k, 10), sats: mineByEp[k] });
+      if (!mine.length) {
+        boardCanvas.innerHTML = '<p class="stats-error">You haven’t boosted any episodes yet — boost one and it’ll show up here.</p>';
+        return;
+      }
+      mine.sort(function (a, b) { return b.sats - a.sats; });
+      var items = mine.map(function (e) {
+        return { label: 'Ep ' + e.num, value: e.sats };
+      });
+      boardCanvas.innerHTML = buildBarSvg(items, 'Sats you have boosted to each episode');
+      if (boardSubEl) {
+        boardSubEl.textContent = 'You’ve boosted ' + items.length +
+          (items.length === 1 ? ' episode' : ' episodes');
+      }
+    }
     draw('sats');
 
     var radios = document.querySelectorAll('input[name="stats-board-view"]');
     for (var r = 0; r < radios.length; r++) {
       radios[r].addEventListener('change', function (e) {
         if (e.target.checked) draw(e.target.value);
+      });
+    }
+
+    // Redraw the "My npub" view on login/logout so it reflects the
+    // current user as soon as a sign-in (or session restore) lands.
+    if (window.LBLogin && typeof window.LBLogin.onChange === 'function') {
+      window.LBLogin.onChange(function () {
+        var sel = document.querySelector('input[name="stats-board-view"]:checked');
+        if (sel && sel.value === 'mine') drawMine();
       });
     }
   }
