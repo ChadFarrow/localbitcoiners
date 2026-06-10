@@ -57,6 +57,7 @@
     { ms: Date.parse('2026-03-02T00:00:00Z'), dollars: 49, sats: 74500 },
     { ms: Date.parse('2026-04-02T00:00:00Z'), dollars: 49, sats: 71940 },
     { ms: Date.parse('2026-05-02T00:00:00Z'), dollars: 49, sats: 62633 },
+    { ms: Date.parse('2026-06-01T00:00:00Z'), dollars: 49, sats: 66599 },
   ];
 
   var canvas = document.querySelector('[data-stats-canvas]');
