@@ -20,6 +20,7 @@ import {
   setCachedProfile,
   registerEvent,
 } from '/assets/js/boosts-thread.js'
+import { nip19 } from '/assets/widgets/nostr-tools.js'
 
 // ── Module state ─────────────────────────────────────────────────────
 const state = {
@@ -209,7 +210,100 @@ function buildActionBar(ev, cardEl) {
   zapBtn.addEventListener('click', () => openZapModal(ev))
   bar.appendChild(zapBtn)
 
+  // Kebab (⋮) menu — lives in the card's author row (top-right), not the
+  // action bar, so it reads as a card-level overflow menu. Its only item
+  // copies the note's nevent. The author row already exists by the time
+  // the renderer invokes this builder.
+  const authorRow = cardEl.querySelector('.note-author')
+  if (authorRow) authorRow.appendChild(buildMoreMenu(ev))
+
   return bar
+}
+
+// ── Per-card overflow (⋮) menu ───────────────────────────────────────
+function buildMoreMenu(ev) {
+  const wrap = document.createElement('div')
+  wrap.className = 'note-more'
+
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'note-more-btn'
+  btn.title = 'More'
+  btn.setAttribute('aria-label', 'More options')
+  btn.setAttribute('aria-haspopup', 'true')
+  btn.setAttribute('aria-expanded', 'false')
+  btn.innerHTML = '<span class="lb-icon" aria-hidden="true">⋮</span>'
+  wrap.appendChild(btn)
+
+  const menu = document.createElement('div')
+  menu.className = 'note-more-menu'
+  menu.hidden = true
+
+  const copyItem = document.createElement('button')
+  copyItem.type = 'button'
+  copyItem.className = 'note-more-item'
+  copyItem.textContent = 'Copy nevent'
+  copyItem.addEventListener('click', () => {
+    closeMenu()
+    copyNevent(ev)
+  })
+  menu.appendChild(copyItem)
+  wrap.appendChild(menu)
+
+  function onDocPointer(e) { if (!wrap.contains(e.target)) closeMenu() }
+  function onKey(e) { if (e.key === 'Escape') closeMenu() }
+  function openMenu() {
+    menu.hidden = false
+    btn.setAttribute('aria-expanded', 'true')
+    document.addEventListener('click', onDocPointer, true)
+    document.addEventListener('keydown', onKey)
+  }
+  function closeMenu() {
+    menu.hidden = true
+    btn.setAttribute('aria-expanded', 'false')
+    document.removeEventListener('click', onDocPointer, true)
+    document.removeEventListener('keydown', onKey)
+  }
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation()  // don't trip the outside-click handler we just bound
+    if (menu.hidden) openMenu()
+    else closeMenu()
+  })
+
+  return wrap
+}
+
+async function copyNevent(ev) {
+  let nevent = ''
+  try { nevent = nip19.neventEncode({ id: ev.id, author: ev.pubkey }) } catch {}
+  if (!nevent) { showToast('Could not build nevent', true); return }
+  if (await copyText(nevent)) showToast('nevent copied')
+  else showToast('Copy failed — clipboard blocked', true)
+}
+
+// navigator.clipboard only exists in secure contexts (HTTPS / localhost),
+// so it's unavailable on plain-HTTP LAN previews and when a page blocks
+// clipboard permissions. Try it first, then fall back to the legacy
+// execCommand('copy') path (runs fine inside this click gesture).
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    try { await navigator.clipboard.writeText(text); return true } catch {}
+  }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.setAttribute('readonly', '')
+    ta.style.position = 'fixed'
+    ta.style.top = '-9999px'
+    document.body.appendChild(ta)
+    ta.select()
+    ta.setSelectionRange(0, text.length)
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
+  } catch {
+    return false
+  }
 }
 
 // ── Reply ────────────────────────────────────────────────────────────

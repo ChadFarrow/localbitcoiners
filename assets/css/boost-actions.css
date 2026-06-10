@@ -130,6 +130,68 @@
   color: var(--orange);
 }
 
+/* ── Per-note overflow (⋮) menu ─────────────────────────────────────
+   Lives in the card's author row (top-right). Single item: copy the
+   note's nevent. Built by buildMoreMenu() in boost-actions.js. */
+.note-more {
+  position: relative;
+  flex-shrink: 0;
+}
+.note-more-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  font: inherit;
+  line-height: 1;
+  padding: 0.15rem 0.4rem;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  transition: background 0.15s, color 0.15s;
+}
+.note-more-btn:hover,
+.note-more-btn[aria-expanded="true"] {
+  background: rgba(247,147,26,0.12);
+  color: var(--orange);
+}
+.note-more-btn .lb-icon {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+.note-more-menu {
+  position: absolute;
+  top: calc(100% + 0.3rem);
+  right: 0;
+  min-width: 190px;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(30,58,95,0.18);
+  padding: 0.3rem;
+  z-index: 50;
+}
+.note-more-menu[hidden] { display: none; }
+.note-more-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--text);
+  padding: 0.5rem 0.65rem;
+  border-radius: 5px;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
+}
+.note-more-item:hover {
+  background: rgba(247,147,26,0.12);
+  color: var(--orange);
+}
+
 /* ── Inline reply composer ───────────────────────────────────────── */
 .reply-composer {
   margin-top: 0.7rem;
