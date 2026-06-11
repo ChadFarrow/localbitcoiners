@@ -361,11 +361,40 @@
       gap: 0.55rem;
       text-decoration: none;
       color: var(--text);
+      /* button reset — copyable cards are <button> elements */
+      background: none;
+      border: none;
+      padding: 0;
+      font: inherit;
     }
-    a.sup-card:hover { color: var(--orange); }
-    a.sup-card:hover .sup-avatar {
+    .sup-card.is-copyable { cursor: pointer; }
+    .sup-card.is-copyable:hover { color: var(--orange); }
+    .sup-card.is-copyable:hover .sup-avatar {
       border-color: var(--orange);
       transform: translateY(-2px);
+    }
+
+    /* Copy confirmation toast. */
+    .sup-toast {
+      position: fixed;
+      left: 50%;
+      bottom: 1.5rem;
+      transform: translateX(-50%) translateY(0.75rem);
+      background: var(--navy);
+      color: var(--white);
+      padding: 0.5rem 1.05rem;
+      border-radius: 7px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.18s ease, transform 0.18s ease;
+      z-index: 200;
+    }
+    .sup-toast.is-visible {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
     }
     .sup-avatar {
       width: 72px;

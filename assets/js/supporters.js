@@ -49,6 +49,50 @@
     return npub.slice(0, 10) + '…' + npub.slice(-4);
   }
 
+  // ── Copy-to-clipboard + toast ──────────────────────────────────────
+  function fallbackCopy(text) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  function copyNpub(npub) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(npub)
+        .then(function () { showToast('npub copied'); })
+        .catch(function () { showToast(fallbackCopy(npub) ? 'npub copied' : 'Copy failed'); });
+    } else {
+      showToast(fallbackCopy(npub) ? 'npub copied' : 'Copy failed');
+    }
+  }
+
+  var toastEl = null;
+  var toastTimer = null;
+  function showToast(msg) {
+    if (!toastEl) {
+      toastEl = document.createElement('div');
+      toastEl.className = 'sup-toast';
+      toastEl.setAttribute('role', 'status');
+      toastEl.setAttribute('aria-live', 'polite');
+      document.body.appendChild(toastEl);
+    }
+    toastEl.textContent = msg;
+    // Force reflow so re-triggering restarts the transition.
+    void toastEl.offsetWidth;
+    toastEl.classList.add('is-visible');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.classList.remove('is-visible'); }, 1600);
+  }
+
   // Registry of rendered cards keyed by npub so a single profile resolve
   // updates every card for that person (a guest may also be a booster).
   var cardsByNpub = Object.create(null);
@@ -64,12 +108,15 @@
     var name = opts.name || (npub ? shortNpub(npub) : 'Anonymous');
     var picture = opts.picture || null;
 
-    var card = document.createElement(npub ? 'a' : 'div');
-    card.className = 'sup-card';
+    // Cards with an npub are copy-to-clipboard buttons; name-only
+    // supporters (no npub) are static — there's nothing to copy.
+    var card = document.createElement(npub ? 'button' : 'div');
+    card.className = 'sup-card' + (npub ? ' is-copyable' : '');
     if (npub) {
-      card.href = 'https://mynostr.app/' + npub + '/profile';
-      card.target = '_blank';
-      card.rel = 'noopener';
+      card.type = 'button';
+      card.title = 'Click to copy npub';
+      card.setAttribute('aria-label', 'Copy npub for ' + name);
+      card.addEventListener('click', function () { copyNpub(npub); });
     }
 
     var avatar = document.createElement('span');
