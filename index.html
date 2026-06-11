@@ -1217,7 +1217,12 @@
       const address = r.getAttribute('address') || '';
       const name = r.getAttribute('name') || address;
       const splitWeight = parseFloat(r.getAttribute('split') || '');
-      if (type !== 'lnaddress') continue;
+      // Keep lnaddress (paid via LNURL) AND node recipients. Node legs can't
+      // be paid directly from the browser, but the widget tries to redirect
+      // them to the guest's Lightning address (via their npub) and otherwise
+      // skips the leg honestly — so they must survive parsing rather than be
+      // dropped (which silently renormalized their split onto the other legs).
+      if (type !== 'lnaddress' && type !== 'node') continue;
       if (!address || !Number.isFinite(splitWeight) || splitWeight <= 0) continue;
       recipients.push({ name, address, splitWeight, type });
     }
@@ -1309,6 +1314,14 @@
     const descText  = descEl ? stripHtml(descEl.textContent).trim() : '';
     // Truncate long descriptions
     const shortDesc = descText.length > 600 ? descText.slice(0, 600).trimEnd() + '…' : descText;
+
+    // Guest npubs from the [guests: npub1..., ...] marker LB embeds at the
+    // end of the shownotes. Passed to the boost modal so it can resolve a
+    // type=node guest recipient to that guest's Lightning address.
+    const guestMatch = descText.match(/\[guests:\s*([^\]]*)\]/i);
+    const guests = guestMatch
+      ? guestMatch[1].split(',').map((s) => s.trim()).filter(Boolean)
+      : [];
 
     // Splits — null-tolerated; if there are no parseable lnaddress
     // recipients, the boost button is hidden rather than failing on click.
@@ -1492,7 +1505,7 @@
           }
           if (window.LBLogin?.openEpisodeBoost) {
             window.LBLogin.openEpisodeBoost({
-              episode: { number: epNum, title, guid, fountainUrl },
+              episode: { number: epNum, title, guid, fountainUrl, guests },
               splits,
             });
           }

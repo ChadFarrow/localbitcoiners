@@ -1,3 +1,6 @@
+import { nip19 } from 'nostr-tools'
+import { getNDK } from './ndk.js'
+
 /**
  * Per-host substitutions applied to RSS-derived split recipients before
  * any LNURL fetch, payment, or kind 30078 publish.
@@ -100,6 +103,86 @@ export function applyRecipientOverrides(recipients) {
 
     indexByAddress.set(next.address, out.length)
     out.push(next)
+  }
+  return out
+}
+
+// ── type=node recipient resolution ──────────────────────────────────────────
+//
+// Podcast 2.0 value blocks can list a recipient as `type="node"` (a Lightning
+// node pubkey paid via keysend) instead of `type="lnaddress"` (paid via LNURL).
+// The browser boost flow only speaks LNURL — it has no keysend path, and many
+// donor wallets can't keysend anyway — so a node recipient can't be paid
+// directly. Rather than silently DROP it (which used to renormalize its split
+// onto the other legs, so the node guest got nothing and the donor overpaid the
+// rest), we try to redirect it to a Lightning address and otherwise mark it
+// unpayable so the leg fails honestly without sending or crediting those sats.
+//
+// On the Local Bitcoiners feed, every value recipient other than reed/rev/
+// aquafox is a GUEST, and guests are identified by npub in the episode's
+// `[guests: npub1...]` marker. A Lightning node pubkey is NOT a Nostr pubkey,
+// so we can't derive the npub from the node pubkey — but we can either look it
+// up in the curated map below or, when an episode has exactly one guest, assume
+// that's who the node recipient is. From the npub we resolve the guest's
+// current lud16 off their kind-0 profile (so a profile address change is picked
+// up automatically), then pay it as an ordinary lnaddress leg.
+
+// Curated Lightning-node-pubkey → npub map. Seeded from the `[guests:]` marker
+// on the episodes where each guest appears (the npub is always in the feed).
+// Add an entry whenever a new guest is listed as type=node and the episode has
+// more than one guest (single-guest episodes resolve automatically below).
+export const NODE_RECIPIENT_NPUBS = {
+  // Sir Spencer — Wolf of KC (BowlAfterBowl). node pubkey → his npub.
+  '03ecb3ee55ba6324d40bea174de096dc9134cb35d990235723b37ae9b5c49f4f53':
+    'npub1yvscx9vrmpcmwcmydrm8lauqdpngum4ne8xmkgc2d4rcaxrx7tkswdwzdu',
+}
+
+export const UNPAYABLE_NODE_REASON =
+  "Browser boosts can only pay Lightning addresses, and this recipient is " +
+  "listed as a keysend node. This leg was skipped — those sats weren't sent."
+
+/** Resolve an npub (or nprofile) to its kind-0 lud16, or null. Never throws. */
+async function resolveLud16ForNpub(npub) {
+  try {
+    const decoded = nip19.decode(npub)
+    const hex = decoded.type === 'npub' ? decoded.data
+              : decoded.type === 'nprofile' ? decoded.data.pubkey
+              : null
+    if (!hex) return null
+    const profile = await getNDK().getUser({ pubkey: hex }).fetchProfile()
+    const addr = profile?.lud16 || profile?.lightningAddress || null
+    return (typeof addr === 'string' && addr.includes('@')) ? addr.trim() : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Resolve every `type:'node'` recipient to a payable lnaddress leg, or flag it
+ * unpayable. Async (it may fetch kind-0 profiles). Pure w.r.t. the input array
+ * — returns a new list; lnaddress recipients pass through untouched.
+ *
+ * @param {Array} recipients   split recipients ({ name, address, splitWeight, type })
+ * @param {string[]} guestNpubs  episode `[guests:]` npubs (for sole-guest auto-match)
+ * @returns {Promise<Array>} recipients with nodes rewritten to lnaddress or
+ *   marked `{ unpayable: true, unpayableReason }`.
+ */
+export async function resolveNodeRecipients(recipients, guestNpubs = []) {
+  if (!Array.isArray(recipients)) return recipients
+  const guests = (Array.isArray(guestNpubs) ? guestNpubs : []).filter(Boolean)
+  const out = []
+  for (const r of recipients) {
+    if (!r || r.type !== 'node') { out.push(r); continue }
+    // Curated map first; else auto-match only when the episode has exactly
+    // one guest (unambiguous). Multi-guest + unmapped → unpayable.
+    const npub = NODE_RECIPIENT_NPUBS[r.address] || (guests.length === 1 ? guests[0] : null)
+    const lud16 = npub ? await resolveLud16ForNpub(npub) : null
+    if (lud16) {
+      out.push({ ...r, type: 'lnaddress', address: lud16, name: r.name || lud16,
+                 resolvedFromNode: r.address })
+    } else {
+      out.push({ ...r, unpayable: true, unpayableReason: UNPAYABLE_NODE_REASON })
+    }
   }
   return out
 }

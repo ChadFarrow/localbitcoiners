@@ -133,7 +133,7 @@ const STATUSES = {
 /** Build the per-leg extraTags shared between the presign step and the
  *  inline burner-signed publish. Centralized so the two paths stay in
  *  sync; if the bot ever cares about a new tag, add it here once. */
-function buildLegExtraTags({ episodeMeta, boostSession, legIndex, legCount }) {
+function buildLegExtraTags({ episodeMeta, boostSession, legIndex, legCount, totalMsats }) {
   return [
     ['episode', String(episodeMeta?.number ?? '')],
     ['episode_title', episodeMeta?.title || ''],
@@ -141,6 +141,12 @@ function buildLegExtraTags({ episodeMeta, boostSession, legIndex, legCount }) {
     ['show', 'Local Bitcoiners'],
     ['boost_session', boostSession],
     ['leg', `${legIndex + 1}/${legCount}`],
+    // Donor's full intended total (msats) for the WHOLE boost, stamped on
+    // every leg. The per-leg `amount` tag is only this leg's share; this lets
+    // a recipient bot recover the donor's intended total from any single leg
+    // it sees — published before payment, so it's reliable even when the
+    // post-payment boost_receipt (which also carries actual-paid) is lost.
+    ['amount_total', String(totalMsats || 0)],
   ]
 }
 
@@ -160,6 +166,7 @@ async function runLeg({
   episodeMeta,
   boostSession,
   legCount,
+  totalMsats,
   burnerSk,
   wallet,        // { kind, payInvoice } — NWC client or WebLN adapter
   message,
@@ -181,6 +188,19 @@ async function runLeg({
   function update(patch) {
     Object.assign(baseResult, patch)
     onStatus?.(leg.index, { ...baseResult })
+  }
+
+  // Unpayable leg (a type=node recipient we couldn't redirect to a Lightning
+  // address). Fail it honestly without attempting LNURL/payment/metadata —
+  // its msats are simply not sent. Its weight still counted in distributeMsats,
+  // so the payable legs keep their true proportional share (no silent
+  // redistribution); the donor just isn't charged for this leg.
+  if (leg.recipient?.unpayable) {
+    update({
+      status: STATUSES.FAILED,
+      error: leg.recipient.unpayableReason || 'This recipient can\'t be paid from the browser.',
+    })
+    return { ...baseResult }
   }
 
   try {
@@ -251,7 +271,7 @@ async function runLeg({
     } else if (shouldPublishMetadata(leg.recipient.address)) {
       update({ status: STATUSES.PUBLISHING })
       const extraTags = buildLegExtraTags({
-        episodeMeta, boostSession, legIndex: leg.index, legCount,
+        episodeMeta, boostSession, legIndex: leg.index, legCount, totalMsats,
       })
       // Burner-signed → strip the donor's npub from the `sender` tag.
       // Same rationale as the presign fallback: a burner key can't
@@ -386,7 +406,7 @@ export async function presignAllowlistedLegs({
         if (!paymentHash) continue
 
         const extraTags = buildLegExtraTags({
-          episodeMeta, boostSession, legIndex: leg.index, legCount: legs.length,
+          episodeMeta, boostSession, legIndex: leg.index, legCount: legs.length, totalMsats,
         })
         const userTemplate = buildDonationBoostagramTemplate({
           paymentHash,
@@ -517,6 +537,7 @@ export async function payAllLegs({
         episodeMeta,
         boostSession,
         legCount: legs.length,
+        totalMsats,
         burnerSk,
         wallet,
         message,

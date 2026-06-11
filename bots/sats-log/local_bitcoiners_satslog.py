@@ -384,7 +384,11 @@ def derive_total_method(info):
         if divisor == 1.0:
             if "castamatic" in app:
                 return "castamatic api"
-            return "tardbox"
+            if "tardbox" in app or "boostme" in app:
+                return "tardbox"
+            # Exact donor intent from the matched Fountain comment's
+            # action.satoshis (no divisor back-calc).
+            return "fountain api"
         label = f"sat math {divisor:g}"
         if "castamatic" in app or "tardbox" in app or "boostme" in app:
             label += " (fallback)"
@@ -396,6 +400,16 @@ def derive_total_method(info):
         return "keysend boostagram"
 
     if source == "website":
+        # The classifier records exactly which fallback tier produced the
+        # total in `amount_method` (boost receipt → 30078 amount_total → rss
+        # split → sat math). Surface it directly; append the divisor for the
+        # estimate tiers so the fraction used is visible.
+        method = info.get("amount_method") or ""
+        if method in ("boost receipt", "30078 amount_total"):
+            return method
+        if method in ("rss split", "sat math"):
+            return f"{method} {divisor:g}"
+        # Legacy rows classified before amount_method existed.
         if info.get("show_level"):
             return "kind 30078 + show split"
         return f"kind 30078 + sat math {divisor:g}"

@@ -17,6 +17,7 @@
 
 import { useState, useEffect } from 'react'
 import { fetchLnurlMeta } from '../lib/boostagram.js'
+import { resolveNodeRecipients } from '../lib/recipientOverrides.js'
 import { lockBodyScroll, unlockBodyScroll } from '../lib/scrollLock.js'
 import { useModalTransition } from '../lib/useModalTransition.js'
 import MultiLegBoostForm from './MultiLegBoostForm.jsx'
@@ -44,18 +45,40 @@ export default function EpisodeBoostModal({
     else requestClose()
   }
 
-  // Resolve every recipient's LNURL endpoint in parallel as soon as
-  // the modal opens. By the time the user finishes typing the amount,
-  // every leg's metadata is cached and the orchestrator can skip its
-  // own resolve step. The cache is passed through to submitBoost.
-  const [lnurlCache, setLnurlCache] = useState({})
+  // Resolve type=node recipients (keysend nodes the browser can't pay) to the
+  // guest's Lightning address before anything else touches the recipients —
+  // see resolveNodeRecipients. lnaddress-only bundles take the synchronous fast
+  // path (no relay hop); a bundle WITH a node recipient waits on the kind-0
+  // lookup. Everything downstream (LNURL prefetch, the form, payAllLegs) uses
+  // `resolvedBundle`, so a node leg is either a real lnaddress leg or flagged
+  // unpayable — never silently dropped.
+  const [resolvedBundle, setResolvedBundle] = useState(null)
   useEffect(() => {
     const recipients = splitsBundle?.recipients
+    if (!Array.isArray(recipients)) { setResolvedBundle(splitsBundle || null); return }
+    if (!recipients.some((r) => r?.type === 'node')) {
+      setResolvedBundle(splitsBundle)
+      return
+    }
+    let cancelled = false
+    resolveNodeRecipients(recipients, episode?.guests || []).then((resolved) => {
+      if (!cancelled) setResolvedBundle({ ...splitsBundle, recipients: resolved })
+    })
+    return () => { cancelled = true }
+  }, [splitsBundle, episode?.guests])
+
+  // Resolve every payable recipient's LNURL endpoint in parallel as soon as
+  // the resolved bundle is ready. By the time the user finishes typing the
+  // amount, every leg's metadata is cached and the orchestrator can skip its
+  // own resolve step. Unpayable (skipped node) legs have no LNURL endpoint.
+  const [lnurlCache, setLnurlCache] = useState({})
+  useEffect(() => {
+    const recipients = resolvedBundle?.recipients
     if (!Array.isArray(recipients) || recipients.length === 0) return
     let cancelled = false
     const next = {}
     Promise.all(recipients.map(async (r) => {
-      if (!r?.address) return
+      if (!r?.address || r.unpayable) return
       try {
         next[r.address] = await fetchLnurlMeta(r.address)
       } catch {
@@ -65,7 +88,7 @@ export default function EpisodeBoostModal({
       if (!cancelled) setLnurlCache(next)
     })
     return () => { cancelled = true }
-  }, [splitsBundle?.recipients])
+  }, [resolvedBundle?.recipients])
 
   // Scroll lock + Esc-to-close intentionally NOT bound (X is the
   // only close path so a misclick doesn't lose typed input).
@@ -102,17 +125,21 @@ export default function EpisodeBoostModal({
           </div>
 
           <div className="px-4 sm:px-6 py-5 space-y-4 flex-1 min-h-0 overflow-y-auto">
-            <MultiLegBoostForm
-              user={user}
-              splitsBundle={splitsBundle}
-              episodeMeta={episode}
-              shareTagline={EPISODE_SHARE_TAGLINE}
-              buttonLabel="Boost Episode"
-              lnurlCache={lnurlCache}
-              subtitle={episode?.title || null}
-              onCancelled={requestClose}
-              onBoostState={setBoostState}
-            />
+            {resolvedBundle ? (
+              <MultiLegBoostForm
+                user={user}
+                splitsBundle={resolvedBundle}
+                episodeMeta={episode}
+                shareTagline={EPISODE_SHARE_TAGLINE}
+                buttonLabel="Boost Episode"
+                lnurlCache={lnurlCache}
+                subtitle={episode?.title || null}
+                onCancelled={requestClose}
+                onBoostState={setBoostState}
+              />
+            ) : (
+              <p className="text-sm text-neutral-400">Preparing recipients…</p>
+            )}
           </div>
 
           {confirmLeave && boostState?.active && (

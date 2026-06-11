@@ -394,12 +394,16 @@ def lookup_fountain_sender(episode_id, settled_at, truncated_message, cache):
     covers cases where the timestamp gap is larger but the message is long
     enough to be unique.
 
-    Returns (npub_or_None, full_message_str)."""
+    Returns (npub_or_None, full_message_str, satoshis_or_None). `satoshis` is
+    the donor's full intended boost amount as Fountain records it on the
+    matched comment's `action` (present only on boost-type comments; None on
+    plain Nostr replies). It's the exact donor intent — preferred over the
+    fee-shrunk, divisor-back-calculated estimate for the published total."""
     if not episode_id:
-        return None, ""
+        return None, "", None
     comments = fetch_fountain_comments(episode_id, cache)
     if not comments:
-        return None, ""
+        return None, "", None
 
     try:
         settled_dt = datetime.fromisoformat(settled_at.replace("Z", "+00:00"))
@@ -424,7 +428,7 @@ def lookup_fountain_sender(episode_id, settled_at, truncated_message, cache):
         action = best.get("action", {})
         pubkey = action.get("pubkey")
         npub   = hex_to_npub(pubkey) if pubkey else None
-        return npub, (action.get("message", "") or "")
+        return npub, (action.get("message", "") or ""), action.get("satoshis")
 
     if truncated_message:
         for item in comments:
@@ -433,8 +437,26 @@ def lookup_fountain_sender(episode_id, settled_at, truncated_message, cache):
             if truncated_message in fmsg:
                 pubkey = action.get("pubkey")
                 npub   = hex_to_npub(pubkey) if pubkey else None
-                return npub, fmsg
-    return None, ""
+                return npub, fmsg, action.get("satoshis")
+    return None, "", None
+
+def _parse_value_lnaddress(value_block_xml):
+    """Extract [{address, split}] for type='lnaddress' recipients from a
+    <podcast:value> block. Node/keysend recipients are intentionally skipped —
+    that mirrors what the website drops before renormalizing its split across
+    the remaining lnaddress legs (the browser LNURL flow can't pay a keysend
+    node), so the reconstructed weights match the legs that actually paid."""
+    out = []
+    if not value_block_xml:
+        return out
+    for attrs in re.findall(r'<podcast:valueRecipient\b([^>]*?)/?>', value_block_xml):
+        if 'type="lnaddress"' not in attrs:
+            continue
+        a = re.search(r'address="([^"]*)"', attrs)
+        s = re.search(r'split="([^"]*)"', attrs)
+        if a and s and s.group(1).isdigit():
+            out.append({"address": a.group(1), "split": int(s.group(1))})
+    return out
 
 def build_rss_item_index(cache):
     """Parse the LB RSS feed once per run and return a dict keyed by the
@@ -450,6 +472,13 @@ def build_rss_item_index(cache):
       guests       list[str]   npub1... values from the [guests: ...] marker
                                LB embeds in the episode description. Empty
                                list when the marker is absent or empty.
+      value_lnaddress list[{address,split}]  per-item <podcast:value> lnaddress
+                               recipients + weights, used by
+                               `_website_intended_from_rss` to reconstruct a
+                               website boost's intended total from one leg.
+
+    Also stashes the channel-level lnaddress value block on
+    `cache["channel_value_lnaddress"]` (for show-level website boosts).
 
     Cached on the per-run cache dict so the RSS parse only runs once. Used by
     `_classify_website` to (a) link website boosts to the right Fountain page
@@ -476,7 +505,16 @@ def build_rss_item_index(cache):
             guests = []
             if gm and gm.group(1).strip():
                 guests = [n.strip() for n in gm.group(1).split(",") if n.strip()]
-            index[guid] = {"fountain_id": fountain_id, "guests": guests}
+            vb = re.search(r'<podcast:value\b.*?</podcast:value>', item_xml, re.DOTALL)
+            index[guid] = {
+                "fountain_id":     fountain_id,
+                "guests":          guests,
+                "value_lnaddress": _parse_value_lnaddress(vb.group(0) if vb else ""),
+            }
+        # Channel-level value block (outside any <item>) for show-level boosts.
+        chan_xml = re.sub(r'<item>.*?</item>', '', rss, flags=re.DOTALL)
+        chan_vb  = re.search(r'<podcast:value\b.*?</podcast:value>', chan_xml, re.DOTALL)
+        cache["channel_value_lnaddress"] = _parse_value_lnaddress(chan_vb.group(0) if chan_vb else "")
     except Exception as e:
         print(f"  [warn] RSS item index build failed: {e}")
     cache["guid_to_fountain"] = index
@@ -514,8 +552,13 @@ def classify_lb_tx(tx, cache=None):
       our_msats      int (amount this node received, raw from tx.amount)
       total_msats    int (full intended boost — our_msats / divisor for split-routed sources)
       our_sats       int (rounded our_msats / 1000)
-      total_sats     int (rounded total_msats / 1000)
-      divisor        float (split divisor used; 1.0 for keysend)
+      total_sats     int (rounded total_msats / 1000 — the headline figure;
+                     for website boosts this is the sats that ACTUALLY landed)
+      intended_sats  int (donor's intended total; == total_sats unless a
+                     website boost had a failed leg — then it's the full intent)
+      legs_failed    int (website only; count of legs that failed to pay, 0
+                     otherwise — drives the "(N intended; M legs failed)" note)
+      divisor        float (split divisor used; 1.0 for keysend / exact-intent)
       sender_npub    str | None (None for anonymous)
       sender_name    str | None (keysend only — display name when no npub is known)
       message        str (boost message, may be empty)
@@ -577,6 +620,9 @@ def _new_info(source, payment_hash, settled_at, our_msats, total_msats, divisor)
         "total_msats":    total_msats,
         "our_sats":       round(our_msats / 1000),
         "total_sats":     round(total_msats / 1000),
+        "intended_sats":  round(total_msats / 1000),
+        "legs_failed":    0,
+        "amount_method":  "",
         "divisor":        divisor,
         "sender_npub":    None,
         "sender_name":    None,
@@ -593,6 +639,70 @@ def _new_info(source, payment_hash, settled_at, our_msats, total_msats, divisor)
         "fountain_comment_pending": False,
         "raw_tx":         None,
     }
+
+def _website_intended_from_rss(leg_msats, leg_recipient, item_guid, show_level, cache):
+    """Reconstruct a website boost's intended total from a single leg using the
+    episode's RSS <podcast:value> split, mirroring the website's distribution:
+    keep only lnaddress recipients (the browser flow drops node/keysend legs)
+    and renormalize across the rest, so total = leg_msats × Σweights ÷ leg_weight.
+
+    This is what fixes the class of error where LB's leg isn't 33% of the total
+    — e.g. an episode with a keysend-node guest recipient gets that recipient
+    dropped and the remaining lnaddress weights renormalized, pushing reed's
+    share above 33%. The flat divisor can't see that; the RSS weights can.
+
+    Returns (intended_msats, leg_fraction) — (0, 0.0) when the leg recipient
+    isn't in the block. CAVEAT: reads the CURRENT feed weights, so a split
+    edited after the boost settled would skew it; still far better than the
+    flat historical divisor for the common unchanged case, and only reached
+    when neither a receipt nor an amount_total tag is available."""
+    if leg_msats <= 0 or not leg_recipient:
+        return 0, 0.0
+    build_rss_item_index(cache)  # ensures item + channel value blocks parsed
+    if show_level:
+        recips = cache.get("channel_value_lnaddress") or []
+    else:
+        entry  = (cache.get("guid_to_fountain") or {}).get(item_guid or "") or {}
+        recips = entry.get("value_lnaddress") or []
+    total_weight = sum(r["split"] for r in recips)
+    leg_weight   = next((r["split"] for r in recips
+                         if r["address"].lower() == leg_recipient.lower()), 0)
+    if leg_weight <= 0 or total_weight <= 0:
+        return 0, 0.0
+    intended = round(leg_msats * total_weight / leg_weight / 1000) * 1000
+    return intended, leg_weight / total_weight
+
+def _resolve_website_amounts(receipt_paid, receipt_intended, receipt_legs_failed,
+                             leg_amount_total, rss_intended, rss_frac,
+                             leg_msats, fallback_divisor):
+    """Resolve a website boost's headline + intended totals from the best
+    available source, in descending order of trust:
+
+      1. boost_receipt → headline = amount_paid (sats that ACTUALLY landed),
+                         intended = amount, + legs_failed for the partial
+                         annotation. Best data, but the receipt is published
+                         fire-and-forget AFTER payment, so it's the least
+                         reliably delivered event (a closed tab loses it).
+      2. 30078 amount_total → the donor's exact intended total, stamped on the
+                         per-leg event, which is presigned + published BEFORE
+                         payment — as reliable as the leg event the bot already
+                         requires. No per-leg outcome on a presigned event, so
+                         we assume full payment: headline = intended.
+      3. RSS-split reconstruction → per-episode weights (handles episodes whose
+                         LB leg isn't 33%). headline = intended.
+      4. flat divisor → last resort (the historical coarse estimate).
+
+    Returns (total_msats, intended_msats, legs_failed, divisor, method).
+    `method` is a short audit label surfaced in sats-log's total_sats_method."""
+    if receipt_paid > 0:
+        intended = receipt_intended if receipt_intended > 0 else receipt_paid
+        return receipt_paid, intended, max(receipt_legs_failed, 0), 1.0, "boost receipt"
+    if leg_amount_total > 0:
+        return leg_amount_total, leg_amount_total, 0, 1.0, "30078 amount_total"
+    if rss_intended > 0:
+        return rss_intended, rss_intended, 0, round(rss_frac, 4), "rss split"
+    total = round(leg_msats / fallback_divisor) if fallback_divisor else leg_msats
+    return total, total, 0, fallback_divisor, "sat math"
 
 def _classify_website(tx, ep_num_padded, payment_hash, settled_at, our_msats, cache):
     """Localbitcoiners.com website boost. Pulls the kind 30078 by payment_hash
@@ -634,10 +744,46 @@ def _classify_website(tx, ep_num_padded, payment_hash, settled_at, our_msats, ca
     if leg_msats <= 0:
         leg_msats = our_msats
 
+    # The donor's intended total, stamped on the per-leg 30078 (presigned +
+    # published before payment, so reliably present). Primary fallback when
+    # the receipt is missing. The recipient address keys the RSS-split
+    # reconstruction below.
+    try:
+        leg_amount_total = int(tags.get("amount_total", 0) or 0)
+    except Exception:
+        leg_amount_total = 0
+    leg_recipient = tags.get("recipient", "") or ""
+
+    # Exact donor intent + actual outcome from the boost_receipt event.
+    # The per-leg 30078 we just read carries the boost_session; the receipt
+    # is the kind 30078 whose `d` tag IS that boost_session (per-leg events
+    # use d=payment_hash, so a #d=boost_session query returns only the
+    # receipt). It records `amount` (donor's exact intended total),
+    # `amount_paid` (what actually landed across all legs), and legs_failed.
+    # _resolve_website_amounts makes the headline the actual-landed figure
+    # and falls back to the leg/divisor estimate when no receipt is on relays
+    # yet (indexing race, or a boost predating the receipt feature).
+    boost_session    = tags.get("boost_session", "") or ""
+    receipt          = fetch_kind_30078(boost_session, cache=cache) if boost_session else None
+    r_paid_msats     = 0
+    r_intended_msats = 0
+    r_legs_failed    = 0
+    if receipt:
+        rtags = {t[0]: t[1] for t in receipt.get("tags", []) if len(t) >= 2}
+        try:    r_intended_msats = int(rtags.get("amount", 0) or 0)
+        except Exception: r_intended_msats = 0
+        try:    r_paid_msats = int(rtags.get("amount_paid", 0) or 0)
+        except Exception: r_paid_msats = 0
+        try:    r_legs_failed = int(rtags.get("legs_failed", 0) or 0)
+        except Exception: r_legs_failed = 0
+
     # ── Show-level branch ──
     if ep_num_padded is None:
-        divisor     = WEBSITE_SHOW_DIVISOR
-        total_msats = round(leg_msats / divisor) if divisor else leg_msats
+        rss_intended, rss_frac = _website_intended_from_rss(
+            leg_msats, leg_recipient, None, True, cache)
+        total_msats, intended_msats, legs_failed, divisor, amount_method = _resolve_website_amounts(
+            r_paid_msats, r_intended_msats, r_legs_failed,
+            leg_amount_total, rss_intended, rss_frac, leg_msats, WEBSITE_SHOW_DIVISOR)
 
         info = _new_info("website", payment_hash, settled_at, our_msats, total_msats, divisor)
         info.update({
@@ -649,6 +795,9 @@ def _classify_website(tx, ep_num_padded, payment_hash, settled_at, our_msats, ca
             "guests":        [],
             "app_name":      "localbitcoiners.com",
             "show_level":    True,
+            "intended_sats": round(intended_msats / 1000),
+            "legs_failed":   legs_failed,
+            "amount_method": amount_method,
             "raw_tx":        tx,
         })
         return info
@@ -687,12 +836,14 @@ def _classify_website(tx, ep_num_padded, payment_hash, settled_at, our_msats, ca
         episode_url = None
         episode_id  = f"lb_website_{ep_num_padded}"
 
-    # leg_msats was parsed above (common to both branches). For episode-tied
-    # boosts, the divisor follows the show's RSS-zap-split history: the
-    # 30078 amount tag is more accurate than tx.amount (which has LN routing
-    # fees baked out, ~0.5% short).
-    divisor     = get_divisor(settled_at)
-    total_msats = round(leg_msats / divisor) if divisor else leg_msats
+    # Resolve the headline (actual-landed) + intended totals via the fallback
+    # chain: boost_receipt → 30078 amount_total → RSS-split reconstruction →
+    # flat divisor. See _resolve_website_amounts.
+    rss_intended, rss_frac = _website_intended_from_rss(
+        leg_msats, leg_recipient, item_guid, False, cache)
+    total_msats, intended_msats, legs_failed, divisor, amount_method = _resolve_website_amounts(
+        r_paid_msats, r_intended_msats, r_legs_failed,
+        leg_amount_total, rss_intended, rss_frac, leg_msats, get_divisor(settled_at))
 
     info = _new_info("website", payment_hash, settled_at, our_msats, total_msats, divisor)
     info.update({
@@ -705,6 +856,9 @@ def _classify_website(tx, ep_num_padded, payment_hash, settled_at, our_msats, ca
         "item_guid":      item_guid or None,
         "guests":         guests,
         "app_name":       "localbitcoiners.com",
+        "intended_sats":  round(intended_msats / 1000),
+        "legs_failed":    legs_failed,
+        "amount_method":  amount_method,
         "raw_tx":         tx,
     })
     return info
@@ -756,7 +910,7 @@ def _classify_fountain_boost(tx, desc, payment_hash, settled_at, our_msats, cach
         if is_undefined:
             message = ""
 
-        sender_npub, full_message = lookup_fountain_sender(episode_id, settled_at, message, cache)
+        sender_npub, full_message, fountain_sats = lookup_fountain_sender(episode_id, settled_at, message, cache)
         if full_message:
             message = strip_fountain_trailer(full_message.strip())
         if is_undefined and not message:
@@ -776,9 +930,20 @@ def _classify_fountain_boost(tx, desc, payment_hash, settled_at, our_msats, cach
         episode_url, episode_id, episode_title, guests = None, None, None, []
         message, sender_npub = "", None
         comment_pending = False
+        fountain_sats = None
 
-    divisor     = get_divisor(settled_at)
-    total_msats = round(our_msats / divisor) if divisor else our_msats
+    # Prefer Fountain's recorded donor intent (the matched comment's
+    # `action.satoshis` — the full boost amount the donor entered, exact)
+    # over back-calculating from the fee-shrunk leg via the split divisor.
+    # Fall back to the divisor estimate for anonymous / no-comment boosts
+    # where no comment matched (and for show-level boosts, whose comment
+    # lookup keys on the show id and returns nothing).
+    if fountain_sats and int(fountain_sats) > 0:
+        total_msats = int(fountain_sats) * 1000
+        divisor     = 1.0
+    else:
+        divisor     = get_divisor(settled_at)
+        total_msats = round(our_msats / divisor) if divisor else our_msats
 
     info = _new_info("fountain_boost", payment_hash, settled_at, our_msats, total_msats, divisor)
     info.update({
@@ -1205,7 +1370,16 @@ def format_note_from_info(info):
     message        = info["message"]
 
     lines = ["⚡ New boost on Local Bitcoiners!"]
-    lines.append(f"💰 {info['total_sats']} sats 📱 via {info['app_name']}")
+    amount_line = f"💰 {info['total_sats']} sats 📱 via {info['app_name']}"
+    # Partial website boost: the headline is the sats that ACTUALLY landed;
+    # annotate with the donor's intended total and the failed-leg count. Only
+    # website boosts expose per-leg outcomes, so legs_failed is 0 for every
+    # other source and this parenthetical never fires for them.
+    failed = info.get("legs_failed", 0) or 0
+    if failed > 0:
+        leg_word = "leg" if failed == 1 else "legs"
+        amount_line += f" ({info['intended_sats']} sats intended; {failed} {leg_word} failed)"
+    lines.append(amount_line)
 
     if sender_display:
         lines.append(f"👤 {sender_display}")

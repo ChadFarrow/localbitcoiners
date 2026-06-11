@@ -334,9 +334,10 @@ function extractEpisode(itemXml, epNum, channelValueXml) {
 }
 
 // ── Podcasting 2.0 value-block parsing ────────────────────────────
-// Per-item <podcast:value> wins; falls back to channel-level. Only
-// lnaddress recipients are kept — keysend can't be paid from the
-// browser flow. Mirrors index.html's parseSplitsFor + parseValueBlock.
+// Per-item <podcast:value> wins; falls back to channel-level. lnaddress
+// AND node recipients are kept — the client redirects node legs to the
+// guest's Lightning address (or skips them honestly) instead of dropping
+// them. Mirrors index.html's parseSplitsFor + parseValueBlock.
 
 function matchChannelValue(xml) {
   // Channel-level <podcast:value> lives outside any <item>. Grab the
@@ -360,7 +361,10 @@ function parseValueBlock(valueXml, source) {
   while ((m = reciRe.exec(valueXml)) !== null) {
     const attrs = m[1];
     const type = (attrs.match(/\btype=["']([^"']*)["']/) || [])[1] || "";
-    if (type !== "lnaddress") continue;
+    // Keep lnaddress AND node recipients — the client redirects node legs to
+    // the guest's Lightning address (or skips them honestly) rather than
+    // dropping them, which used to silently renormalize their split.
+    if (type !== "lnaddress" && type !== "node") continue;
     const address = (attrs.match(/\baddress=["']([^"']*)["']/) || [])[1] || "";
     const name = (attrs.match(/\bname=["']([^"']*)["']/) || [])[1] || address;
     const splitStr = (attrs.match(/\bsplit=["']([^"']*)["']/) || [])[1] || "";
@@ -563,7 +567,7 @@ function renderEpisodePage(ep) {
 <body>
 
 <script type="application/json" id="lb-ep-data">${jsonForScript({
-    episode: { number: ep.number, title: ep.title, guid: ep.guid, fountainUrl: ep.fountainUrl, pubDate: isoPubDate },
+    episode: { number: ep.number, title: ep.title, guid: ep.guid, fountainUrl: ep.fountainUrl, pubDate: isoPubDate, guests: ep.guests },
     splits: ep.splits,
   })}</script>
 

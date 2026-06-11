@@ -190,51 +190,64 @@ export default function BoostProgressView({
           const sats = st.msats != null
             ? Math.round(st.msats / 1000)
             : Math.floor((totalSats * (r?.splitWeight || 0)) / totalWeight)
+          // An unpayable leg is a keysend-node recipient we couldn't redirect
+          // to a Lightning address: shown as "Skipped" (amber), no Retry (it
+          // can never succeed in-browser), with the reason inline so the donor
+          // knows that leg didn't send.
+          const unpayable = !!r?.unpayable
           return (
             <li
               key={`${r?.address || 'r'}-${i}`}
-              className="flex items-center justify-between gap-3 text-sm py-1.5 min-w-0"
+              className="flex flex-col gap-0.5 py-1.5 min-w-0"
             >
-              {/* min-w-0 on BOTH the container and the name is what lets the
-                  name actually truncate instead of overflowing the row. */}
-              <span className="flex items-center gap-2 min-w-0 flex-1">
-                {r?.image && isSafeUrl(r.image) && (
-                  <img
-                    src={r.image}
-                    alt=""
-                    className="w-4 h-4 rounded-full object-cover flex-shrink-0"
-                    onError={(e) => { e.target.style.display = 'none' }}
-                  />
-                )}
-                <span className="text-neutral-300 truncate min-w-0">
-                  {r?.name || r?.address || `Recipient ${i + 1}`}
+              <div className="flex items-center justify-between gap-3 text-sm min-w-0">
+                {/* min-w-0 on BOTH the container and the name is what lets the
+                    name actually truncate instead of overflowing the row. */}
+                <span className="flex items-center gap-2 min-w-0 flex-1">
+                  {r?.image && isSafeUrl(r.image) && (
+                    <img
+                      src={r.image}
+                      alt=""
+                      className="w-4 h-4 rounded-full object-cover flex-shrink-0"
+                      onError={(e) => { e.target.style.display = 'none' }}
+                    />
+                  )}
+                  <span className="text-neutral-300 truncate min-w-0">
+                    {r?.name || r?.address || `Recipient ${i + 1}`}
+                  </span>
+                  <span className="text-neutral-500 flex-shrink-0 text-xs">
+                    {sats.toLocaleString()} sats
+                  </span>
                 </span>
-                <span className="text-neutral-500 flex-shrink-0 text-xs">
-                  {sats.toLocaleString()} sats
-                </span>
-              </span>
 
-              <span className="flex items-center gap-2 flex-shrink-0">
-                {status === 'failed' && onRetryLeg && (
-                  <button
-                    onClick={() => onRetryLeg(i)}
-                    className="text-[11px] font-medium px-2 py-0.5 rounded bg-orange-500 hover:bg-orange-600 text-white transition-colors"
-                  >
-                    Retry
-                  </button>
-                )}
-                <span className={`text-right ${
-                  status === 'paid' ? 'text-green-400'
-                    : status === 'failed' ? 'text-red-400'
-                      : WORKING.has(status) ? 'text-orange-300'
-                        : 'text-neutral-500'
-                }`}>
-                  {statusWord(status)}
+                <span className="flex items-center gap-2 flex-shrink-0">
+                  {status === 'failed' && onRetryLeg && !unpayable && (
+                    <button
+                      onClick={() => onRetryLeg(i)}
+                      className="text-[11px] font-medium px-2 py-0.5 rounded bg-orange-500 hover:bg-orange-600 text-white transition-colors"
+                    >
+                      Retry
+                    </button>
+                  )}
+                  <span className={`text-right ${
+                    status === 'paid' ? 'text-green-400'
+                      : unpayable ? 'text-amber-400'
+                        : status === 'failed' ? 'text-red-400'
+                          : WORKING.has(status) ? 'text-orange-300'
+                            : 'text-neutral-500'
+                  }`}>
+                    {unpayable ? 'Skipped' : statusWord(status)}
+                  </span>
+                  <span className="w-4 h-4 flex items-center justify-center flex-shrink-0">
+                    <StatusIcon status={status} />
+                  </span>
                 </span>
-                <span className="w-4 h-4 flex items-center justify-center flex-shrink-0">
-                  <StatusIcon status={status} />
+              </div>
+              {unpayable && (r.unpayableReason || st.error) && (
+                <span className="text-[11px] text-amber-400/80 leading-snug">
+                  {r.unpayableReason || st.error}
                 </span>
-              </span>
+              )}
             </li>
           )
         })}

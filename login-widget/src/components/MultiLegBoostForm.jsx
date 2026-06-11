@@ -296,6 +296,9 @@ export default function MultiLegBoostForm({
     const recipient = progressRecipients[index]
     const current = legStates[index]
     if (!recipient || current?.status !== 'failed') return
+    // Unpayable (skipped keysend-node) legs can never succeed from the
+    // browser — retrying would just instantly re-fail. No-op.
+    if (recipient.unpayable) return
 
     const totalSats = Math.max(1, Math.round((current?.msats || 0) / 1000))
     const totalWeight = recipient.splitWeight || 1
