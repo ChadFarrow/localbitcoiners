@@ -257,6 +257,22 @@ SENDER_OVERRIDES = {
         "sender_npub": "",
         "sender_name": "btcwrestle",
     },
+    # Permanerd's rapid-fire spree (2026-06-07 03:08-03:18Z) — he boosted every
+    # episode in order. For two consecutive boosts the website signer momentarily
+    # dropped out, so the per-leg kind 30078 fell back to an anonymous burner key
+    # (empty `sender` tag) and the classifier read them as Anon. npub confirmed
+    # from the surrounding boosts in the same run (Ep001-008, 011-014, Show all
+    # carry it). Website-side fix landed in login-widget presign retry.
+    # Ep. 009 boost ("Yo"):
+    "3d32aed15d83a6ceab336800c9e866540f8feb9582c74b6f25adf7682611f722": {
+        "sender_npub": "npub1zqdpzty2mshxncqqxy2078qax6mlehsxmpx5095wtxw4tpepkr0s2ce6fj",
+        "sender_name": "",
+    },
+    # Ep. 010 boost ("Not even tired yet") — same spree, same signer dropout.
+    "055157da91975b910bb963ef951baa9d8a83cbc188ec4f99d958bd1248e1940d": {
+        "sender_npub": "npub1zqdpzty2mshxncqqxy2078qax6mlehsxmpx5095wtxw4tpepkr0s2ce6fj",
+        "sender_name": "",
+    },
 }
 
 # Per-tx divisor corrections. The shared classifier picks the RSS-split
