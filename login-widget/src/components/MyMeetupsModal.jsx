@@ -10,36 +10,9 @@
  * api.openShowBoost with a {naddr}-prefilled message) so the show-boost
  * modal's wallet/signer gates apply unchanged.
  */
-import { useEffect, useState } from 'react'
-import { getNDK, connectAndWait } from '../lib/ndk.js'
-import {
-  KIND_DATE_EVENT,
-  KIND_TIME_EVENT,
-  parseCalendarEvent,
-} from '../lib/eventTypes.js'
 import { BOOST_EXISTING_TEMPLATE, interpolateNaddr } from '../lib/eventAnnouncement.js'
+import { useMyMeetups, formatMeetupWhen } from '../hooks/useMyMeetups.js'
 import MeetupModalChrome from './MeetupModalChrome.jsx'
-
-function formatWhen(p) {
-  if (!p || !Number.isFinite(p.startUnix)) return ''
-  const ms = p.startUnix * 1000
-  const sameYear = new Date(ms).getFullYear() === new Date().getFullYear()
-  if (p.isDateBased) {
-    return new Intl.DateTimeFormat(undefined, {
-      weekday: 'short', month: 'short', day: 'numeric',
-      year: sameYear ? undefined : 'numeric',
-      timeZone: 'UTC',
-    }).format(new Date(ms))
-  }
-  const tz = p.startTzid || undefined
-  return new Intl.DateTimeFormat(undefined, {
-    weekday: 'short', month: 'short', day: 'numeric',
-    hour: 'numeric', minute: '2-digit',
-    year: sameYear ? undefined : 'numeric',
-    timeZone: tz,
-    timeZoneName: 'short',
-  }).format(new Date(ms))
-}
 
 function splitFuturePast(events) {
   const now = Math.floor(Date.now() / 1000)
@@ -56,53 +29,7 @@ function splitFuturePast(events) {
 }
 
 export default function MyMeetupsModal({ user, onClose, onBoostMeetup }) {
-  const pubkey = user?.pubkey
-  const [events, setEvents] = useState(null)   // null = loading, [] = empty, [...] = loaded
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    if (!pubkey) { setEvents([]); return }
-    let cancelled = false
-    setError('')
-    setEvents(null)
-    ;(async () => {
-      try {
-        const ndk = getNDK()
-        await connectAndWait(ndk, 3000).catch(() => {})
-        const set = await ndk.fetchEvents({
-          kinds: [KIND_DATE_EVENT, KIND_TIME_EVENT],
-          authors: [pubkey],
-          limit: 200,
-        })
-        if (cancelled) return
-        // Same (kind, pubkey, d) may arrive from multiple relays as
-        // separate revisions — keep the newest per coordinate.
-        const byCoord = new Map()
-        for (const ev of set || []) {
-          const d = ev.tags?.find(t => t[0] === 'd')?.[1]
-          if (!d) continue
-          const key = `${ev.kind}:${ev.pubkey}:${d}`
-          const prev = byCoord.get(key)
-          if (!prev || (ev.created_at || 0) > (prev.created_at || 0)) byCoord.set(key, ev)
-        }
-        const parsed = []
-        for (const ev of byCoord.values()) {
-          const p = parseCalendarEvent({
-            id: ev.id, pubkey: ev.pubkey, kind: ev.kind,
-            tags: ev.tags || [], content: ev.content || '', created_at: ev.created_at,
-          })
-          if (p) parsed.push(p)
-        }
-        setEvents(parsed)
-      } catch (e) {
-        if (cancelled) return
-        console.warn('[MyMeetupsModal] fetch failed', e)
-        setError('Couldn’t load your meetups. Please try again.')
-        setEvents([])
-      }
-    })()
-    return () => { cancelled = true }
-  }, [pubkey])
+  const { events, error } = useMyMeetups(user?.pubkey)
 
   const handleBoost = (p) => {
     if (!p?.naddr) return
@@ -180,7 +107,7 @@ function Row({ p, onBoost }) {
       <div className="lb-meetup-row-body">
         <div className="lb-meetup-row-title">{p.title || 'Untitled meetup'}</div>
         <div className="lb-meetup-row-meta">
-          {formatWhen(p)}{p.location ? ` · ${p.location}` : ''}
+          {formatMeetupWhen(p)}{p.location ? ` · ${p.location}` : ''}
         </div>
       </div>
       <button type="button" className="lb-meetup-row-boost" onClick={() => onBoost(p)}>

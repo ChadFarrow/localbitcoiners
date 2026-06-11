@@ -37,14 +37,22 @@ export default function ImportExportDisclosure({
   exportDisabled = false,
   exportTitle,
   exportMenuItems,          // optional: [{ label, onClick, disabled? }, …]
+
+  onToggle,                 // (open: boolean) => void — fires on expand/collapse
+  children,                 // rendered below the controls (e.g. a copy-from list)
 }) {
   const fileRef = useRef(null)
   const [exportOpen, setExportOpen] = useState(false)
 
   const error = importError || loadError
 
+  const showExport = !!onExport || (exportMenuItems && exportMenuItems.length > 0)
+
   return (
-    <details className="lb-disclosure">
+    <details
+      className="lb-disclosure"
+      onToggle={(e) => onToggle?.(e.currentTarget.open)}
+    >
       <summary>
         <svg
           className="lb-caret"
@@ -86,8 +94,8 @@ export default function ImportExportDisclosure({
             {importLoading ? '…' : importLabel}
           </button>
 
-          {/* Export — simple button or dropdown */}
-          {exportMenuItems && exportMenuItems.length > 0 ? (
+          {/* Export — simple button or dropdown (omitted when no handler) */}
+          {showExport && (exportMenuItems && exportMenuItems.length > 0 ? (
             <div style={{ position: 'relative', flexShrink: 0 }}>
               <button
                 type="button"
@@ -148,7 +156,7 @@ export default function ImportExportDisclosure({
             >
               {exportLabel}
             </button>
-          )}
+          ))}
 
           {/* Paste id + Load — flex-grows to fill remaining space. */}
           <form
@@ -181,6 +189,8 @@ export default function ImportExportDisclosure({
         </div>
 
         {error && <div className="lb-error">{error}</div>}
+
+        {children}
       </div>
     </details>
   )

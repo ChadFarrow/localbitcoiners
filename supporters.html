@@ -4,9 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-  <!-- Pragmatic baseline CSP. See index.html for the rationale; both
-       pages share the same policy intentionally so future tightening
-       happens in lockstep. -->
+  <!-- Pragmatic baseline CSP. Mirrors meetups.html / index.html so
+       future tightening happens in lockstep. -->
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'self';
     script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com;
@@ -20,9 +19,9 @@
     object-src 'none';
   " />
 
-  <title>Meetups — Local Bitcoiners</title>
-  <meta name="description" content="Bitcoin meetups boosted by Local Bitcoiners listeners, pulled live from Nostr — plus a composer to publish your own meetup as a NIP-52 calendar event." />
-  <link rel="canonical" href="https://localbitcoiners.com/meetups" />
+  <title>Supporters — Local Bitcoiners</title>
+  <meta name="description" content="The boosters, streamers, coding contributors, and show guests who power the Local Bitcoiners podcast." />
+  <link rel="canonical" href="https://localbitcoiners.com/supporters" />
   <link rel="icon" type="image/png" href="assets/favicon.png" />
 
   <!-- PWA -->
@@ -35,19 +34,16 @@
 
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
-  <meta property="og:url" content="https://localbitcoiners.com/meetups" />
-  <meta property="og:title" content="Meetups — Local Bitcoiners" />
-  <meta property="og:description" content="Bitcoin meetups boosted by Local Bitcoiners listeners, pulled live from Nostr." />
+  <meta property="og:url" content="https://localbitcoiners.com/supporters" />
+  <meta property="og:title" content="Supporters — Local Bitcoiners" />
+  <meta property="og:description" content="The boosters, streamers, coding contributors, and show guests who power Local Bitcoiners." />
   <meta property="og:site_name" content="Local Bitcoiners" />
   <meta property="og:image" content="https://localbitcoiners.com/assets/LocalBitcoiners_banner_YT.jpg" />
   <meta name="twitter:card" content="summary_large_image" />
 
-  <!-- Self-hosted fonts (mirrors boosts.html). -->
+  <!-- Self-hosted fonts (mirrors meetups.html). -->
   <link rel="preload" as="font" type="font/woff2" href="assets/fonts/source-serif-4.woff2" crossorigin />
   <link rel="preload" as="font" type="font/woff2" href="assets/fonts/playfair-display.woff2" crossorigin />
-
-  <!-- Shared note / calendar-card styles (.embed-note.is-event etc.). -->
-  <link rel="stylesheet" href="/assets/css/boosts-thread.css" />
 
   <style>
     @font-face {
@@ -89,12 +85,13 @@
       color: var(--text);
       line-height: 1.65;
       font-size: 17px;
+      color-scheme: light;
     }
     a { color: var(--navy); text-decoration: underline; text-underline-offset: 3px; }
     a:hover { color: var(--orange); }
     img { display: block; max-width: 100%; }
 
-    /* ── Nav (mirrors index.html / boosts.html) ── */
+    /* ── Nav (mirrors meetups.html / boosts.html) ── */
     #top-nav {
       position: sticky;
       top: 0;
@@ -165,7 +162,8 @@
     .nav-more > summary::-webkit-details-marker { display: none; }
     .nav-more > summary::marker { content: ''; }
     .nav-more > summary:hover,
-    .nav-more[open] > summary {
+    .nav-more[open] > summary,
+    .nav-more.is-active > summary {
       background: rgba(247,147,26,0.18);
       color: var(--orange);
     }
@@ -200,7 +198,8 @@
       text-transform: uppercase;
       transition: background 0.12s, color 0.12s;
     }
-    .nav-more-menu a:hover {
+    .nav-more-menu a:hover,
+    .nav-more-menu a.active {
       background: rgba(247,147,26,0.18);
       color: var(--orange);
     }
@@ -301,128 +300,99 @@
       opacity: 0.75;
     }
 
-    /* Force the light color-scheme on meetup modals so native date/time
-       pickers render light (the modals are mounted on document.body and
-       could otherwise inherit a dark hint). */
-    body { color-scheme: light; }
-
-    /* ── "Boost a Meetup" bar + drawer ──
-       Sits between the page header and the boosted-meetups list.
-       Click the bar → inline drawer with 4 entry-point buttons. Each
-       button triggers a modal via the login-widget. */
-    .boost-bar-wrap {
-      max-width: 700px;
+    /* ── Supporters grids ── */
+    .supporters-wrap {
+      max-width: 1000px;
       margin: 0 auto;
-      padding: 1.75rem 1.25rem 0;
+      padding: 2.75rem 1.25rem 1.5rem;
     }
-    .boost-bar {
-      background: var(--white);
-      border: 1px solid var(--border);
-      border-left: 4px solid var(--orange);
-      border-radius: 10px;
-      box-shadow: 0 2px 8px rgba(30, 58, 95, 0.06);
-      overflow: hidden;
-    }
-    .boost-bar-summary {
-      list-style: none;
-      cursor: pointer;
-      user-select: none;
-      display: flex;
-      align-items: center;
-      gap: 0.85rem;
-      padding: 1rem 1.15rem;
-      transition: background 0.15s;
-    }
-    .boost-bar-summary::-webkit-details-marker { display: none; }
-    .boost-bar-summary::marker { content: ''; }
-    .boost-bar-summary:hover { background: #fdf6e2; }
-    .boost-bar-bolt {
-      width: 22px; height: 22px;
-      flex-shrink: 0;
-      color: var(--orange);
-    }
-    .boost-bar-text {
-      flex: 1;
-      min-width: 0;
-      line-height: 1.25;
-    }
-    .boost-bar-label {
-      display: block;
+    .sup-section { margin-bottom: 3rem; }
+    .sup-section-head { margin-bottom: 1.4rem; }
+    .sup-section-head h2 {
       font-family: 'Playfair Display', Georgia, serif;
-      font-size: 1.1rem;
+      font-size: clamp(1.25rem, 3vw, 1.6rem);
       font-weight: 700;
       color: var(--navy);
-    }
-    .boost-bar-sub {
-      display: block;
-      font-size: 0.82rem;
-      color: var(--muted);
-      margin-top: 0.05rem;
-    }
-    .boost-bar-caret {
-      flex-shrink: 0;
-      color: var(--muted);
-      font-size: 0.95rem;
-      transition: transform 0.18s ease;
-    }
-    .boost-bar[open] .boost-bar-caret { transform: rotate(180deg); }
-    .boost-bar-drawer {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
+      display: flex;
+      align-items: baseline;
       gap: 0.6rem;
-      padding: 0 1.15rem 1.1rem;
-      border-top: 1px solid var(--border);
-      padding-top: 1rem;
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 0.5rem;
     }
-    .boost-bar-btn {
-      background: var(--cream);
-      border: 1px solid var(--border);
-      border-radius: 7px;
-      padding: 0.7rem 0.85rem;
-      font: inherit;
-      font-size: 0.9rem;
-      color: var(--text);
-      cursor: pointer;
-      text-align: left;
+    .sup-count {
+      font-family: 'Source Serif 4', Georgia, serif;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--white);
+      background: var(--orange);
+      border-radius: 999px;
+      padding: 0.05rem 0.55rem;
+      line-height: 1.5;
+    }
+    .sup-section-sub {
+      margin-top: 0.5rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+      font-style: italic;
+    }
+    .sup-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+      gap: 1.5rem 0.75rem;
+    }
+    .sup-card {
       display: flex;
       flex-direction: column;
-      gap: 0.15rem;
-      transition: background 0.15s, border-color 0.15s, color 0.15s;
+      align-items: center;
+      text-align: center;
+      gap: 0.55rem;
+      text-decoration: none;
+      color: var(--text);
     }
-    .boost-bar-btn:hover {
-      background: #ffffff;
+    a.sup-card:hover { color: var(--orange); }
+    a.sup-card:hover .sup-avatar {
       border-color: var(--orange);
+      transform: translateY(-2px);
     }
-    .boost-bar-btn:disabled {
-      opacity: 0.55;
-      cursor: wait;
+    .sup-avatar {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      overflow: hidden;
+      background: var(--cream-d);
+      border: 2px solid var(--border);
+      flex-shrink: 0;
+      display: block;
+      transition: border-color 0.15s, transform 0.15s;
     }
-    .boost-bar-btn-title {
-      font-weight: 700;
-      color: var(--navy);
-      font-size: 0.95rem;
+    .sup-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .sup-avatar.is-blank {
+      background:
+        radial-gradient(circle at 50% 38%, var(--border) 0 22%, transparent 23%),
+        radial-gradient(circle at 50% 92%, var(--border) 0 40%, transparent 41%),
+        var(--cream-d);
     }
-    .boost-bar-btn-sub {
-      font-size: 0.78rem;
-      color: var(--muted);
-      line-height: 1.35;
-    }
-    @media (max-width: 540px) {
-      .boost-bar-drawer { grid-template-columns: 1fr; }
-      .boost-bar-summary { padding: 0.9rem 1rem; gap: 0.7rem; }
-      .boost-bar-label { font-size: 1rem; }
+    .sup-name {
+      font-size: 0.82rem;
+      font-weight: 600;
+      line-height: 1.25;
+      word-break: break-word;
+      max-width: 100%;
     }
 
-    /* ── Meetups list ── */
-    .meetups-wrap {
-      max-width: 700px;
-      margin: 0 auto;
-      padding: 2.5rem 1.25rem 1.5rem;
+    /* Loading + error states. */
+    .supporters-loading {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+      gap: 1.5rem 0.75rem;
+      max-width: 1000px;
+      margin: 2.75rem auto 0;
+      padding: 0 1.25rem;
     }
-    .meetups-loading { display: grid; gap: 1rem; }
-    .meetup-skeleton {
-      height: 96px;
-      border-radius: 8px;
+    .sup-skeleton {
+      width: 72px; height: 72px;
+      border-radius: 50%;
+      margin: 0 auto;
       background: linear-gradient(90deg,
         rgba(30,58,95,0.05) 0%,
         rgba(30,58,95,0.12) 50%,
@@ -430,50 +400,13 @@
       background-size: 200% 100%;
       animation: skeleton-shimmer 1.4s ease-in-out infinite;
     }
-    .meetups-error,
-    .meetups-empty {
+    .supporters-error {
+      max-width: 1000px;
+      margin: 2rem auto;
+      padding: 0 1.25rem;
       color: var(--muted);
       font-style: italic;
-      padding: 1rem 0;
     }
-    .meetup-list {
-      list-style: none;
-      display: grid;
-      gap: 1rem;
-      margin: 0;
-      padding: 0;
-    }
-    .meetup-list li { margin: 0; }
-    .meetup-list .embed-note { margin: 0; }
-
-    /* ── Past Meetups disclosure ── */
-    .past-meetups {
-      margin-top: 2.25rem;
-      border-top: 1px solid var(--border);
-      padding-top: 1.1rem;
-    }
-    .past-meetups > summary {
-      cursor: pointer;
-      list-style: none;
-      user-select: none;
-      display: flex;
-      align-items: center;
-      gap: 0.45rem;
-      font-family: 'Playfair Display', Georgia, serif;
-      font-weight: 700;
-      font-size: 1.1rem;
-      color: var(--navy);
-      padding: 0.3rem 0;
-    }
-    .past-meetups > summary::-webkit-details-marker { display: none; }
-    .past-meetups > summary::marker { content: ''; }
-    .past-meetups > summary::before {
-      content: '▸';
-      font-size: 0.85em;
-      transition: transform 0.15s;
-    }
-    .past-meetups[open] > summary::before { transform: rotate(90deg); }
-    .past-meetups #meetups-past { margin-top: 1rem; }
 
     /* ── Footer ── */
     footer {
@@ -497,6 +430,8 @@
     @media (max-width: 420px) {
       .nav-logo { width: 36px; height: 36px; }
       .nav-site-name { font-size: 0.92rem; }
+      .sup-grid, .supporters-loading { grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); }
+      .sup-avatar, .sup-skeleton { width: 64px; height: 64px; }
     }
   </style>
 </head>
@@ -512,13 +447,13 @@
     <nav aria-label="Main navigation">
       <ul>
         <li><a href="/boosts.html">Boosts</a></li>
-        <li><a href="/meetups" class="active">Meetups</a></li>
+        <li><a href="/meetups">Meetups</a></li>
         <li><a href="/stats.html">Stats</a></li>
         <li>
-          <details class="nav-more">
+          <details class="nav-more is-active">
             <summary>More <span class="caret" aria-hidden="true">▾</span></summary>
             <ul class="nav-more-menu">
-              <li><a href="/supporters">Supporters</a></li>
+              <li><a href="/supporters" class="active">Supporters</a></li>
               <li><a href="/#meetups">Resources</a></li>
               <li><a href="/#links">Links</a></li>
             </ul>
@@ -542,68 +477,31 @@
     </div>
     <div id="lb-identity-slot" aria-label="Account">
       <!-- Static placeholder swapped out by IdentityWidget once the
-           bundle loads. Same pattern as boosts.html. -->
+           bundle loads. Same pattern as meetups.html. -->
     </div>
   </div>
 </header>
 
 <!-- ══════════════════════════════ PAGE HEADER ══════════════════════════════ -->
 <section class="page-header">
-  <h1>Meetups</h1>
-  <p>Bitcoin meetups boosted by Local Bitcoiners listeners — pulled live from Nostr.</p>
-  <p class="page-header-note">(this page is updated daily)</p>
+  <h1>Supporters</h1>
+  <p>Meet the boosters, streamers, coding contributors, and show guests who power Local Bitcoiners.</p>
+  <p class="page-header-note">(boosters update daily)</p>
 </section>
 
-<!-- ══════════════════════════════ "BOOST A MEETUP" BAR + DRAWER ══════════════════════════════ -->
-<section class="boost-bar-wrap">
-  <details class="boost-bar" id="boost-bar">
-    <summary class="boost-bar-summary">
-      <svg class="boost-bar-bolt" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-        <path fill-rule="evenodd" d="M14.615 1.595a.75.75 0 0 1 .359.852L12.982 9.75h7.268a.75.75 0 0 1 .548 1.262l-10.5 11.25a.75.75 0 0 1-1.272-.71l1.992-7.302H3.75a.75.75 0 0 1-.548-1.262l10.5-11.25a.75.75 0 0 1 .913-.143Z" clip-rule="evenodd"/>
-      </svg>
-      <span class="boost-bar-text">
-        <span class="boost-bar-label">Boost a Meetup</span>
-        <span class="boost-bar-sub">Boost an existing meetup event or create a listing here</span>
-      </span>
-      <span class="boost-bar-caret" aria-hidden="true">▾</span>
-    </summary>
-    <div class="boost-bar-drawer">
-      <button type="button" class="boost-bar-btn" data-lb-meetup-trigger="my">
-        <span class="boost-bar-btn-title">My meetups</span>
-        <span class="boost-bar-btn-sub">Boost a meetup already published from your npub</span>
-      </button>
-      <button type="button" class="boost-bar-btn" data-lb-meetup-trigger="search">
-        <span class="boost-bar-btn-title">Search Nostr</span>
-        <span class="boost-bar-btn-sub">Find a meetup by account name or npub</span>
-      </button>
-      <button type="button" class="boost-bar-btn" data-lb-meetup-trigger="paste">
-        <span class="boost-bar-btn-title">Event naddr or External URL</span>
-        <span class="boost-bar-btn-sub">Boost a meetup by its Nostr address or any link</span>
-      </button>
-      <button type="button" class="boost-bar-btn" data-lb-meetup-trigger="create">
-        <span class="boost-bar-btn-title">+ Create new</span>
-        <span class="boost-bar-btn-sub">Publish a new NIP-52 meetup to Nostr</span>
-      </button>
-    </div>
-  </details>
-</section>
-
-<!-- ══════════════════════════════ MEETUPS LIST ══════════════════════════════ -->
-<section class="meetups-wrap">
-  <div id="meetups-loading" class="meetups-loading" aria-live="polite">
-    <div class="meetup-skeleton"></div>
-    <div class="meetup-skeleton"></div>
-    <div class="meetup-skeleton"></div>
-  </div>
-  <p id="meetups-error" class="meetups-error" style="display:none">
-    Couldn't load meetups right now — please try again later.
-  </p>
-  <div id="meetups-upcoming"></div>
-  <details id="past-meetups" class="past-meetups" hidden>
-    <summary>Past Meetups</summary>
-    <div id="meetups-past"></div>
-  </details>
-</section>
+<!-- ══════════════════════════════ SUPPORTERS ══════════════════════════════ -->
+<div id="supporters-loading" class="supporters-loading" aria-live="polite">
+  <div class="sup-skeleton"></div>
+  <div class="sup-skeleton"></div>
+  <div class="sup-skeleton"></div>
+  <div class="sup-skeleton"></div>
+  <div class="sup-skeleton"></div>
+  <div class="sup-skeleton"></div>
+</div>
+<p id="supporters-error" class="supporters-error" style="display:none">
+  Couldn't load supporters right now — please try again later.
+</p>
+<main id="supporters-root" class="supporters-wrap"></main>
 
 <!-- ══════════════════════════════ FOOTER ══════════════════════════════ -->
 <footer>
@@ -611,10 +509,9 @@
 </footer>
 
 <!-- ───────────────── NOSTR LOGIN WIDGET (lazy) ─────────────────
-     The widget bundle is ~250KB gzipped. The meetups list is this
-     page's primary content, so the bundle is deferred until it's
-     actually needed: a returning user's session restore, a nav
-     boost / sign-in click, or the composer scrolling into view. -->
+     Keeps the persistent Boost / identity affordance in the nav, in
+     parity with the rest of the site. Bundle is deferred until a
+     returning user's session restore or a boost / sign-in click. -->
 <script>
 (function () {
   'use strict';
@@ -626,8 +523,6 @@
       const s = document.createElement('script');
       s.src = 'assets/widgets/login-widget.js';
       s.async = true;
-      // window.LBLogin + mount() run synchronously when the IIFE
-      // executes; wait one microtask so the render has been scheduled.
       s.onload = () => { Promise.resolve().then(resolve); };
       s.onerror = () => {
         widgetPromise = null;
@@ -638,7 +533,6 @@
     return widgetPromise;
   }
 
-  // Boost-the-show nav placeholder — load on click, then open the modal.
   const boostPh = document.querySelector('[data-lb-boost-trigger="show"]');
   if (boostPh) {
     boostPh.addEventListener('click', async () => {
@@ -661,9 +555,6 @@
     });
   }
 
-  // Identity slot — returning users get the shimmer + an eager load so
-  // their avatar resolves quickly; new users get a "Sign in" pill that
-  // loads the bundle on click.
   const identitySlot = document.getElementById('lb-identity-slot');
   function renderIdentitySignIn() {
     if (!identitySlot) return;
@@ -697,49 +588,13 @@
       renderIdentitySignIn();
     }
   }
-
-  // "Boost a Meetup" drawer — pre-warm the widget bundle when the user
-  // opens the drawer (signals intent), then route each button click to
-  // the matching modal. The widget's openMeetupModal handles the login
-  // gate via setPendingAction so a logged-out user gets a login prompt,
-  // not an empty modal.
-  const boostBar = document.getElementById('boost-bar');
-  if (boostBar) {
-    let prewarmed = false;
-    boostBar.addEventListener('toggle', () => {
-      if (boostBar.open && !prewarmed) {
-        prewarmed = true;
-        ensureWidgetLoaded().catch((e) => console.warn('[lb] drawer prewarm failed', e));
-      }
-    });
-    const triggers = boostBar.querySelectorAll('[data-lb-meetup-trigger]');
-    triggers.forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const kind = btn.getAttribute('data-lb-meetup-trigger');
-        if (!kind) return;
-        btn.disabled = true;
-        try {
-          await ensureWidgetLoaded();
-          if (window.LBLogin?.openMeetupModal) {
-            window.LBLogin.openMeetupModal(kind);
-          }
-          // Collapse the drawer once the modal is opening so it doesn't
-          // sit visually behind the modal when the user dismisses it.
-          boostBar.open = false;
-        } catch (e) {
-          console.error('[lb] meetup widget load failed', e);
-        } finally {
-          btn.disabled = false;
-        }
-      });
-    });
-  }
 })();
 </script>
 
-<!-- Meetups list — fetches the boosted-meetup feed + live calendar
-     events from Nostr and renders the cards. -->
-<script type="module" src="/assets/js/meetups.js"></script>
+<!-- Profile cache + resolver (window.LBEpisodeEnhance). Loaded before
+     supporters.js so the grids can paint from cache on first paint. -->
+<script src="/assets/js/episode-enhance.js" defer></script>
+<script src="/assets/js/supporters.js" defer></script>
 
 <!-- PWA service worker -->
 <script>
