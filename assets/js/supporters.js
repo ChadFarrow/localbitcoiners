@@ -79,28 +79,49 @@
   }
 
   // ── Copy-to-clipboard + toast ──────────────────────────────────────
+  // execCommand fallback for when navigator.clipboard is unavailable or
+  // rejected (e.g. Firefox on Android gates the async clipboard). The
+  // textarea must be ON-SCREEN with real size — an opacity:0 / off-screen
+  // field isn't reliably selectable on mobile — and we honour the actual
+  // execCommand return value rather than assuming success.
   function fallbackCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '0';
+    ta.style.left = '0';
+    ta.style.width = '1px';
+    ta.style.height = '1px';
+    ta.style.padding = '0';
+    ta.style.border = '0';
+    ta.style.fontSize = '16px';   // avoids iOS zoom; harmless elsewhere
+    document.body.appendChild(ta);
+    var ok = false;
     try {
-      var ta = document.createElement('textarea');
-      ta.value = text;
-      ta.setAttribute('readonly', '');
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
+      ta.focus();
       ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-      return true;
-    } catch (e) { return false; }
+      try { ta.setSelectionRange(0, text.length); } catch (e) {}
+      ok = document.execCommand('copy');
+    } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return !!ok;
   }
 
   function copyNpub(npub) {
+    function finish(ok) {
+      if (ok) { showToast('npub copied'); return; }
+      // Last resort so it NEVER silently does nothing: prompt() shows the
+      // npub for manual copy on every browser, including Firefox Android.
+      try { window.prompt('Copy this npub:', npub); }
+      catch (e) { showToast('Couldn’t copy npub'); }
+    }
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(npub)
-        .then(function () { showToast('npub copied'); })
-        .catch(function () { showToast(fallbackCopy(npub) ? 'npub copied' : 'Copy failed'); });
+        .then(function () { finish(true); })
+        .catch(function () { finish(fallbackCopy(npub)); });
     } else {
-      showToast(fallbackCopy(npub) ? 'npub copied' : 'Copy failed');
+      finish(fallbackCopy(npub));
     }
   }
 
