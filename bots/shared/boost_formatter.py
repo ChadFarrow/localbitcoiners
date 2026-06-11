@@ -553,11 +553,15 @@ def classify_lb_tx(tx, cache=None):
       total_msats    int (full intended boost — our_msats / divisor for split-routed sources)
       our_sats       int (rounded our_msats / 1000)
       total_sats     int (rounded total_msats / 1000 — the headline figure;
-                     for website boosts this is the sats that ACTUALLY landed)
+                     for website boosts this is the sats that LANDED = confirmed
+                     paid + uncertain, since uncertain legs are credited)
       intended_sats  int (donor's intended total; == total_sats unless a
-                     website boost had a failed leg — then it's the full intent)
-      legs_failed    int (website only; count of legs that failed to pay, 0
-                     otherwise — drives the "(N intended; M legs failed)" note)
+                     website boost had a CONFIRMED-failed leg — then full intent)
+      legs_failed    int (website only; count of CONFIRMED-failed legs, 0
+                     otherwise — drives the "(N intended; M legs failed)" note.
+                     Uncertain legs are NOT counted here — they're credited.)
+      uncertain_sats int (website only; the portion of total_sats on UNCERTAIN
+                     legs — credited but kept separate for audit; 0 otherwise)
       divisor        float (split divisor used; 1.0 for keysend / exact-intent)
       sender_npub    str | None (None for anonymous)
       sender_name    str | None (keysend only — display name when no npub is known)
@@ -622,6 +626,7 @@ def _new_info(source, payment_hash, settled_at, our_msats, total_msats, divisor)
         "total_sats":     round(total_msats / 1000),
         "intended_sats":  round(total_msats / 1000),
         "legs_failed":    0,
+        "uncertain_sats": 0,
         "amount_method":  "",
         "divisor":        divisor,
         "sender_npub":    None,
@@ -674,17 +679,21 @@ def _website_intended_from_rss(leg_msats, leg_recipient, item_guid, show_level, 
     intended = round(leg_msats * total_weight / leg_weight / 1000) * 1000
     return intended, leg_weight / total_weight
 
-def _resolve_website_amounts(receipt_paid, receipt_intended, receipt_legs_failed,
-                             leg_amount_total, rss_intended, rss_frac,
-                             leg_msats, fallback_divisor):
+def _resolve_website_amounts(receipt_paid, receipt_uncertain, receipt_intended,
+                             receipt_legs_failed, leg_amount_total, rss_intended,
+                             rss_frac, leg_msats, fallback_divisor):
     """Resolve a website boost's headline + intended totals from the best
     available source, in descending order of trust:
 
-      1. boost_receipt → headline = amount_paid (sats that ACTUALLY landed),
-                         intended = amount, + legs_failed for the partial
-                         annotation. Best data, but the receipt is published
-                         fire-and-forget AFTER payment, so it's the least
-                         reliably delivered event (a closed tab loses it).
+      1. boost_receipt → headline = amount_paid + amount_uncertain (sats that
+                         LANDED). UNCERTAIN legs (payment couldn't be confirmed
+                         — e.g. an NWC reply was lost) are credited as
+                         successful per policy: no-confirmation ≠ no-payment, and
+                         we'd rather over-credit a rare phantom than under-credit
+                         a real boost. Only CONFIRMED `failed` legs are excluded
+                         (and surface in legs_failed → the note's "(N intended;
+                         M legs failed)"). The uncertain portion is returned
+                         separately so the ledger keeps the audit split.
       2. 30078 amount_total → the donor's exact intended total, stamped on the
                          per-leg event, which is presigned + published BEFORE
                          payment — as reliable as the leg event the bot already
@@ -694,17 +703,20 @@ def _resolve_website_amounts(receipt_paid, receipt_intended, receipt_legs_failed
                          LB leg isn't 33%). headline = intended.
       4. flat divisor → last resort (the historical coarse estimate).
 
-    Returns (total_msats, intended_msats, legs_failed, divisor, method).
-    `method` is a short audit label surfaced in sats-log's total_sats_method."""
-    if receipt_paid > 0:
-        intended = receipt_intended if receipt_intended > 0 else receipt_paid
-        return receipt_paid, intended, max(receipt_legs_failed, 0), 1.0, "boost receipt"
+    Returns (total_msats, intended_msats, legs_failed, divisor, method,
+    uncertain_msats). `method` is the audit label in total_sats_method;
+    `uncertain_msats` is the unconfirmed portion of the headline (0 outside
+    the receipt tier)."""
+    landed = receipt_paid + receipt_uncertain
+    if landed > 0:
+        intended = receipt_intended if receipt_intended > 0 else landed
+        return landed, intended, max(receipt_legs_failed, 0), 1.0, "boost receipt", receipt_uncertain
     if leg_amount_total > 0:
-        return leg_amount_total, leg_amount_total, 0, 1.0, "30078 amount_total"
+        return leg_amount_total, leg_amount_total, 0, 1.0, "30078 amount_total", 0
     if rss_intended > 0:
-        return rss_intended, rss_intended, 0, round(rss_frac, 4), "rss split"
+        return rss_intended, rss_intended, 0, round(rss_frac, 4), "rss split", 0
     total = round(leg_msats / fallback_divisor) if fallback_divisor else leg_msats
-    return total, total, 0, fallback_divisor, "sat math"
+    return total, total, 0, fallback_divisor, "sat math", 0
 
 def _classify_website(tx, ep_num_padded, payment_hash, settled_at, our_msats, cache):
     """Localbitcoiners.com website boost. Pulls the kind 30078 by payment_hash
@@ -767,19 +779,40 @@ def _classify_website(tx, ep_num_padded, payment_hash, settled_at, our_msats, ca
     # yet (indexing race, or a boost predating the receipt feature).
     boost_session    = tags.get("boost_session", "") or ""
     receipt          = fetch_kind_30078(boost_session, cache=cache) if boost_session else None
-    r_paid_msats     = 0
-    r_intended_msats = 0
-    r_legs_failed    = 0
-    r_sender         = ""
+    r_paid_msats      = 0
+    r_uncertain_msats = 0
+    r_intended_msats  = 0
+    r_legs_failed     = 0
+    r_sender          = ""
     if receipt:
         rtags = {t[0]: t[1] for t in receipt.get("tags", []) if len(t) >= 2}
-        try:    r_intended_msats = int(rtags.get("amount", 0) or 0)
-        except Exception: r_intended_msats = 0
-        try:    r_paid_msats = int(rtags.get("amount_paid", 0) or 0)
-        except Exception: r_paid_msats = 0
-        try:    r_legs_failed = int(rtags.get("legs_failed", 0) or 0)
-        except Exception: r_legs_failed = 0
+        def _ri(tag):
+            try:    return int(rtags.get(tag, 0) or 0)
+            except Exception: return 0
+        r_intended_msats  = _ri("amount")
+        r_paid_msats      = _ri("amount_paid")
+        r_uncertain_msats = _ri("amount_uncertain")  # msats on UNCERTAIN legs
+        r_legs_failed     = _ri("legs_failed")        # CONFIRMED failures only
         r_sender = (rtags.get("sender", "") or "").strip()
+
+        # Node-authoritative reconciliation of OUR leg. We're here only because
+        # this leg's payment SETTLED on our node, so whatever the receipt claims
+        # about it, it really paid. If the receipt marked our leg `failed` (a
+        # verify gap) or `uncertain` (NWC reply lost), reclassify it to paid —
+        # this counts it as landed and keeps the paid-vs-uncertain audit split
+        # honest. The node supersedes the receipt. (Other legs settle on nodes
+        # we can't see, so the receipt remains authoritative for them.)
+        for t in receipt.get("tags", []):
+            if t[0] == "leg_result" and len(t) >= 5 and t[4] == payment_hash:
+                try:    leg_amt = int(t[2] or 0)
+                except Exception: leg_amt = 0
+                if t[3] == "failed":
+                    r_paid_msats += leg_amt
+                    r_legs_failed = max(0, r_legs_failed - 1)
+                elif t[3] == "uncertain":
+                    r_paid_msats      += leg_amt
+                    r_uncertain_msats  = max(0, r_uncertain_msats - leg_amt)
+                break
 
     # Recover attribution for an anon (burner-signed) leg from the boost
     # receipt's claimed sender npub. When a donor's signer is unavailable (e.g.
@@ -801,8 +834,8 @@ def _classify_website(tx, ep_num_padded, payment_hash, settled_at, our_msats, ca
     if ep_num_padded is None:
         rss_intended, rss_frac = _website_intended_from_rss(
             leg_msats, leg_recipient, None, True, cache)
-        total_msats, intended_msats, legs_failed, divisor, amount_method = _resolve_website_amounts(
-            r_paid_msats, r_intended_msats, r_legs_failed,
+        total_msats, intended_msats, legs_failed, divisor, amount_method, uncertain_msats = _resolve_website_amounts(
+            r_paid_msats, r_uncertain_msats, r_intended_msats, r_legs_failed,
             leg_amount_total, rss_intended, rss_frac, leg_msats, WEBSITE_SHOW_DIVISOR)
 
         info = _new_info("website", payment_hash, settled_at, our_msats, total_msats, divisor)
@@ -817,6 +850,7 @@ def _classify_website(tx, ep_num_padded, payment_hash, settled_at, our_msats, ca
             "show_level":    True,
             "intended_sats": round(intended_msats / 1000),
             "legs_failed":   legs_failed,
+            "uncertain_sats": round(uncertain_msats / 1000),
             "amount_method": amount_method,
             "raw_tx":        tx,
         })
@@ -861,8 +895,8 @@ def _classify_website(tx, ep_num_padded, payment_hash, settled_at, our_msats, ca
     # flat divisor. See _resolve_website_amounts.
     rss_intended, rss_frac = _website_intended_from_rss(
         leg_msats, leg_recipient, item_guid, False, cache)
-    total_msats, intended_msats, legs_failed, divisor, amount_method = _resolve_website_amounts(
-        r_paid_msats, r_intended_msats, r_legs_failed,
+    total_msats, intended_msats, legs_failed, divisor, amount_method, uncertain_msats = _resolve_website_amounts(
+        r_paid_msats, r_uncertain_msats, r_intended_msats, r_legs_failed,
         leg_amount_total, rss_intended, rss_frac, leg_msats, get_divisor(settled_at))
 
     info = _new_info("website", payment_hash, settled_at, our_msats, total_msats, divisor)
@@ -878,6 +912,7 @@ def _classify_website(tx, ep_num_padded, payment_hash, settled_at, our_msats, ca
         "app_name":       "localbitcoiners.com",
         "intended_sats":  round(intended_msats / 1000),
         "legs_failed":    legs_failed,
+        "uncertain_sats": round(uncertain_msats / 1000),
         "amount_method":  amount_method,
         "raw_tx":         tx,
     })

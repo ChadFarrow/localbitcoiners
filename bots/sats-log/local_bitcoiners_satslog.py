@@ -176,6 +176,11 @@ CSV_COLUMNS = [
     "aquafox_sats",
     "guests_sats",
     "fountain_sats",
+    # Audit split for website boosts: the portion of total_sats that landed on
+    # UNCERTAIN legs (payment couldn't be confirmed — credited as successful per
+    # policy, but kept separate here so we can reconcile/audit later). 0 for
+    # everything else. confirmed-paid = total_sats - uncertain_sats.
+    "uncertain_sats",
 ]
 
 # fountain-api.csv — the *full* Fountain Firestore supporter view, one row per
@@ -485,7 +490,7 @@ def _coerce_json_value(col, raw):
     if raw == "" or raw is None:
         return None
     if col in ("total_sats", "our_sats", "reed_sats", "rev_sats",
-               "aquafox_sats", "guests_sats", "fountain_sats"):
+               "aquafox_sats", "guests_sats", "fountain_sats", "uncertain_sats"):
         return int(raw)
     if col == "divisor":
         return float(raw)
@@ -870,6 +875,7 @@ def info_to_row(info):
         "divisor":            info.get("divisor", ""),
         "total_sats_method":  derive_total_method(info),
         "message":            msg,
+        "uncertain_sats":     info.get("uncertain_sats", 0),
     }
     return apply_manual_overrides(row)
 
