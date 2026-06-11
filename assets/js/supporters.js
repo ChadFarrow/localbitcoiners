@@ -41,7 +41,7 @@
     { id: 't100', min: 100000, title: '100k+ Boosters' },
     { id: 't69',  min: 69000,  title: '69k+ Boosters' },
     { id: 't21',  min: 21000,  title: '21k+ Boosters' },
-    { id: 't0',   min: 1,      title: 'Boosters & Streamers' },
+    { id: 't0',   min: 1,      title: 'All Other Boosters & Streamers' },
   ];
 
   function shortNpub(npub) {
@@ -67,7 +67,7 @@
     var card = document.createElement(npub ? 'a' : 'div');
     card.className = 'sup-card';
     if (npub) {
-      card.href = 'https://mynostr.app/' + npub;
+      card.href = 'https://mynostr.app/' + npub + '/profile';
       card.target = '_blank';
       card.rel = 'noopener';
     }
