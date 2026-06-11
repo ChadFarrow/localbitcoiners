@@ -63,6 +63,7 @@ import {
   signDonationBoostagramWithUserResilient,
   signDonationBoostagramWithBurner,
   publishSignedBoostagram,
+  confirmInvoiceSettled,
 } from './boostagram.js'
 import { formatEpisodeComment } from './episodeData.js'
 import { shouldPublishMetadata } from './recipientOverrides.js'
@@ -120,6 +121,17 @@ function uuid4() {
   return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`
 }
 
+// Translate a raw wallet error into a short, donor-facing line. Keeps the
+// terse SDK strings out of the UI and caps length so a stringified error
+// object can't blow out the row.
+function friendlyPayError(msg) {
+  if (!msg) return 'Payment failed.'
+  if (/insufficient|not enough|no funds|balance too low/i.test(msg)) return 'Not enough balance in your wallet.'
+  if (/expired/i.test(msg)) return 'The invoice expired before it could be paid.'
+  if (/no route|route not found|unable to find route/i.test(msg)) return 'No payment route to this recipient.'
+  return msg.length > 140 ? msg.slice(0, 140) + '…' : msg
+}
+
 const STATUSES = {
   PENDING: 'pending',
   RESOLVING: 'resolving',     // fetching lnurl metadata
@@ -128,6 +140,8 @@ const STATUSES = {
   PAYING: 'paying',           // payInvoice in flight
   PAID: 'paid',
   FAILED: 'failed',
+  UNCERTAIN: 'uncertain',     // pay attempt gave no clean preimage AND we
+                              // couldn't confirm settlement — may have paid
 }
 
 /** Build the per-leg extraTags shared between the presign step and the
@@ -183,6 +197,10 @@ async function runLeg({
     paymentHash: null,
     eventId: null,
     metadataPublished: false,
+    // LUD-21 verify URL for this leg's invoice, when the endpoint provides
+    // one. Used to confirm settlement after an ambiguous pay attempt, and
+    // carried into legStates so a retry can check before re-paying.
+    verifyUrl: prefetched?.verify || null,
   }
 
   function update(patch) {
@@ -241,8 +259,9 @@ async function runLeg({
       const sendComment = allowed > 0 ? comment.slice(0, allowed) : ''
 
       update({ status: STATUSES.REQUESTING })
-      const { pr } = await fetchLnurlInvoice(meta.callback, leg.msats, sendComment)
+      const { pr, verify } = await fetchLnurlInvoice(meta.callback, leg.msats, sendComment)
       invoice = pr
+      if (verify) update({ verifyUrl: verify })
     }
 
     const paymentHash = bolt11PaymentHash(invoice)
@@ -296,35 +315,62 @@ async function runLeg({
     // else: deliberately no metadata publish — leg pays without a 30078.
 
     update({ status: STATUSES.PAYING })
-    // Hand the bolt11 to the active wallet adapter. NWC routes through
-    // an encrypted wallet-relay round-trip (a few hundred ms warm to
-    // ~10s cold; the SDK enforces a 60s reply-timeout ceiling).
-    // WebLN goes straight to the browser extension and is typically
-    // sub-second when the extension's auto-pay budget covers the
-    // amount, otherwise it waits on user approval.
+    // Hand the bolt11 to the active wallet adapter. NWC routes through an
+    // encrypted wallet-relay round-trip (SDK enforces a 60s reply-timeout
+    // ceiling); WebLN goes straight to the browser extension.
     //
-    // Translate either backend's terse timeout into something
-    // actionable — a timeout almost always means either the wallet
-    // was slow under contention or the payment actually settled but
-    // the reply got lost. Either way the user should check their
-    // wallet before retrying.
-    let payRes
+    // CRITICAL: a missing or late preimage does NOT mean the payment failed.
+    // With NWC the payment can settle on Lightning while the wallet's reply
+    // event (which carries the preimage) times out or is lost over the relay.
+    // So an ambiguous pay outcome is NEVER marked FAILED without first
+    // confirming settlement out-of-band via the LUD-21 verify URL. Otherwise
+    // we'd tell the donor "nothing was charged" and invite a double-paying
+    // retry — exactly the bug this replaces.
+    let preimage = null
+    let payError = null
     try {
-      payRes = await wallet.payInvoice({ invoice })
+      const payRes = await wallet.payInvoice({ invoice })
+      preimage = payRes?.preimage || null
     } catch (e) {
-      const msg = String(e?.message || e)
-      if (/reply timeout|publish timeout|timeout/i.test(msg)) {
-        throw new Error('Wallet didn\'t reply in time — the payment may have actually gone through. Check your wallet before retrying.')
-      }
-      throw e
-    }
-    if (!payRes || !payRes.preimage) {
-      throw new Error('Wallet didn\'t return a preimage — payment may not have settled.')
+      payError = e
     }
 
-    update({ status: STATUSES.PAID })
+    if (preimage) {
+      update({ status: STATUSES.PAID })
+      return { ...baseResult }
+    }
+
+    // No clean preimage. A *clean decline* (insufficient balance, expired
+    // invoice, no route) means the payment definitively never left the
+    // wallet → safe to fail without a verify round-trip. Anything else
+    // (timeout, lost reply, no-preimage, generic error) is ambiguous.
+    const payMsg = String(payError?.message || payError || '')
+    const cleanDecline = /insufficient|not enough|no funds|balance too low|expired|no route|unable to find route|route not found/i.test(payMsg)
+    if (cleanDecline) {
+      update({ status: STATUSES.FAILED, error: friendlyPayError(payMsg) })
+      return { ...baseResult }
+    }
+
+    // Ambiguous — confirm settlement before deciding anything.
+    const settlement = await confirmInvoiceSettled(baseResult.verifyUrl, paymentHash)
+    if (settlement === 'settled') {
+      update({ status: STATUSES.PAID })
+      return { ...baseResult }
+    }
+    if (settlement === 'unsettled') {
+      update({ status: STATUSES.FAILED, error: friendlyPayError(payMsg) || 'Payment did not settle.' })
+      return { ...baseResult }
+    }
+    // 'unknown' — verify URL missing/unreachable. We genuinely can't tell,
+    // so we must NOT claim it failed (no "wallet wasn't charged", no auto-retry).
+    update({
+      status: STATUSES.UNCERTAIN,
+      error: 'Couldn’t confirm this payment. Check your wallet before retrying — it may have already gone through.',
+    })
     return { ...baseResult }
   } catch (e) {
+    // Pre-payment failures (LNURL resolve, invoice fetch, metadata publish,
+    // below-min) land here — these are definitively not-paid, so FAILED.
     update({ status: STATUSES.FAILED, error: e?.message || String(e) })
     return { ...baseResult }
   }
@@ -401,7 +447,7 @@ export async function presignAllowlistedLegs({
         const allowed = meta.commentAllowed || 0
         const sendComment = allowed > 0 ? comment.slice(0, allowed) : ''
 
-        const { pr } = await fetchLnurlInvoice(meta.callback, leg.msats, sendComment)
+        const { pr, verify } = await fetchLnurlInvoice(meta.callback, leg.msats, sendComment)
         const paymentHash = bolt11PaymentHash(pr)
         if (!paymentHash) continue
 
@@ -449,7 +495,7 @@ export async function presignAllowlistedLegs({
           signedEvent = signDonationBoostagramWithBurner(burnerTemplate, burnerSk)
         }
 
-        byAddress[r.address] = { invoice: pr, signedEvent }
+        byAddress[r.address] = { invoice: pr, signedEvent, verify: verify || null }
       } catch (e) {
         // LNURL or invoice fetch failed for this leg. Skip the presign
         // entry and let payAllLegs's legacy path retry the network
@@ -555,6 +601,7 @@ export async function payAllLegs({
 
   const anySucceeded = results.some(r => r.status === STATUSES.PAID)
   const allSucceeded = results.every(r => r.status === STATUSES.PAID)
+  const anyUncertain = results.some(r => r.status === STATUSES.UNCERTAIN)
 
-  return { boostSession, legs: results, anySucceeded, allSucceeded }
+  return { boostSession, legs: results, anySucceeded, allSucceeded, anyUncertain }
 }

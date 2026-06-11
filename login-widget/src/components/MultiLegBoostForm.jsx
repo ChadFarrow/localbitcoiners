@@ -30,6 +30,7 @@ import {
   SITE_URL,
   buildEpisodeBoostShareTemplate,
   signKindOneShareWithUser,
+  confirmInvoiceSettled,
 } from '../lib/boostagram.js'
 import * as wallet from '../lib/wallet.js'
 import { submitBoost } from '../lib/boostQueue.js'
@@ -287,15 +288,14 @@ export default function MultiLegBoostForm({
     })
   }
 
-  // Retry a SINGLE failed leg, in place — the modal stays on the done view
-  // and only that row re-runs (failed → working → paid/failed). A leg that
-  // failed will usually fail again on the same wallet, so this is most
-  // useful for transient recipient-side failures; each retry is its own
-  // boost session (own receipt), which the bot reconciles by actual sats.
+  // Retry a SINGLE leg, in place — the modal stays on the done view and only
+  // that row re-runs. Handles both 'failed' (confirmed not paid) and
+  // 'uncertain' (settlement unknown) legs. Each retry is its own boost session
+  // (own receipt), which the bot reconciles by actual sats.
   async function handleRetryLeg(index) {
     const recipient = progressRecipients[index]
     const current = legStates[index]
-    if (!recipient || current?.status !== 'failed') return
+    if (!recipient || (current?.status !== 'failed' && current?.status !== 'uncertain')) return
     // Unpayable (skipped keysend-node) legs can never succeed from the
     // browser — retrying would just instantly re-fail. No-op.
     if (recipient.unpayable) return
@@ -308,6 +308,40 @@ export default function MultiLegBoostForm({
 
     // Optimistic flip so the Retry button is replaced by a spinner instantly.
     handleLegStatus(index, { ...current, status: 'resolving', error: null })
+
+    // SAFETY: never re-pay a leg that may have already settled — this is the
+    // guard against the double-spend a blind retry would cause.
+    //   - 'failed' legs are already confirmed not-paid, so re-pay is safe; we
+    //     still verify when we can, as a bonus catch.
+    //   - 'uncertain' legs MUST be confirmed unpaid before re-paying. If we
+    //     can't confirm (no verify URL, or it stays unknown), we refuse to
+    //     re-pay and tell the donor to check their wallet.
+    const canVerify = !!(current.verifyUrl && current.paymentHash)
+    if (canVerify) {
+      const settlement = await confirmInvoiceSettled(current.verifyUrl, current.paymentHash)
+      if (cancelledRef.current) return
+      if (settlement === 'settled') {
+        handleLegStatus(index, { ...current, status: 'paid', error: null })
+        return
+      }
+      if (settlement !== 'unsettled' && current.status === 'uncertain') {
+        handleLegStatus(index, {
+          ...current,
+          status: 'uncertain',
+          error: 'Still couldn’t confirm this one. Check your wallet directly before retrying — it may have already paid.',
+        })
+        return
+      }
+      // 'unsettled', or unknown on a confirmed-failed leg → safe to re-pay.
+    } else if (current.status === 'uncertain') {
+      // No way to confirm an unconfirmed leg — never auto re-pay it.
+      handleLegStatus(index, {
+        ...current,
+        status: 'uncertain',
+        error: 'Can’t confirm this payment automatically. Check your wallet directly — it may have already gone through.',
+      })
+      return
+    }
 
     if (!wallet.isReady()) {
       handleLegStatus(index, { ...current, status: 'failed', error: 'wallet not connected' })

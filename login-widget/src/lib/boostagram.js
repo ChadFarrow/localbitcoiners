@@ -467,10 +467,22 @@ export function buildBoostReceiptTemplate({
     : ''
   const paidLegs = legs.filter(l => l?.status === 'paid')
   const failedCount = legs.filter(l => l?.status === 'failed').length
+  const uncertainCount = legs.filter(l => l?.status === 'uncertain').length
   const amountPaid = paidLegs.reduce((acc, l) => acc + (l?.msats || 0), 0)
+  // Sats on legs whose settlement we couldn't confirm. Kept SEPARATE from
+  // amount_paid (the authoritative "confirmed landed" figure) so the bot can
+  // reconcile these against the recipient nodes rather than the headline
+  // silently over- or under-counting them.
+  const amountUncertain = legs
+    .filter(l => l?.status === 'uncertain')
+    .reduce((acc, l) => acc + (l?.msats || 0), 0)
+  // 'uncertain' = paid-status unknown (e.g. NWC reply lost). Surfaced to the
+  // bots so they can reconcile against the recipients' nodes rather than
+  // assuming nothing was sent.
   const outcome = legs.length > 0 && paidLegs.length === legs.length
     ? 'paid'
-    : paidLegs.length > 0 ? 'partial' : 'failed'
+    : paidLegs.length > 0 ? 'partial'
+      : uncertainCount > 0 ? 'uncertain' : 'failed'
 
   const tags = [
     ['d', boostSession],
@@ -489,9 +501,11 @@ export function buildBoostReceiptTemplate({
     ['show', 'Local Bitcoiners'],
     ['amount', String(totalMsatsRequested || 0)],
     ['amount_paid', String(amountPaid)],
+    ['amount_uncertain', String(amountUncertain)],
     ['legs', String(legs.length)],
     ['legs_paid', String(paidLegs.length)],
     ['legs_failed', String(failedCount)],
+    ['legs_uncertain', String(uncertainCount)],
     ['outcome', outcome],
   ]
   // One per recipient: [lud16, amount_msats, status, payment_hash("" if unpaid)].
@@ -719,8 +733,71 @@ export async function publishBoostShareNote({
   return { eventId: ev.id, published }
 }
 
-// (LUD-21 verify poller removed — was dead code after the multi-leg
-// rewrite, and had a fail-open bug where a missing crypto.subtle made
-// verifyPreimageMatches return true. The boost flow now relies on
-// wallet-side payment confirmation via the wallet adapter's
-// payInvoice() preimage instead of polling LNURL verify endpoints.)
+// ─── LUD-21 settlement confirmation ─────────────────────────────────────────
+// Re-added (was removed in the multi-leg rewrite) because relying solely on
+// payInvoice()'s preimage produces FALSE failures: with NWC the payment can
+// settle on Lightning while the wallet's reply event (carrying the preimage)
+// times out or is lost over the relay. The LNURL endpoint's LUD-21 verify URL
+// is an authoritative, out-of-band "did this invoice actually get paid?" check.
+
+// Compute sha256(preimage_bytes) and compare to the expected payment_hash.
+// Both hex strings. When crypto.subtle is unavailable we can't check, so we
+// return true (fall back to trusting the endpoint's `settled` boolean) — only
+// ever reached when settled===true already, and our LNURL endpoints aren't
+// adversarial.
+async function verifyPreimageMatches(preimageHex, expectedHashHex) {
+  if (!crypto?.subtle) return true
+  const hexRe = /^[0-9a-f]{64}$/i
+  if (!hexRe.test(preimageHex) || !hexRe.test(expectedHashHex)) return false
+  try {
+    const bytes = new Uint8Array(32)
+    for (let i = 0; i < 32; i++) {
+      bytes[i] = parseInt(preimageHex.slice(i * 2, i * 2 + 2), 16)
+    }
+    const hashBuf = await crypto.subtle.digest('SHA-256', bytes)
+    const hashHex = Array.from(new Uint8Array(hashBuf))
+      .map(b => b.toString(16).padStart(2, '0')).join('')
+    return hashHex.toLowerCase() === expectedHashHex.toLowerCase()
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Bounded settlement check against an LNURL LUD-21 verify URL. Called AFTER a
+ * payInvoice attempt that didn't cleanly return a preimage, to decide whether
+ * the payment actually settled.
+ *
+ * Returns:
+ *   'settled'   — the invoice was paid (verified preimage if one was provided)
+ *   'unsettled' — the endpoint answered and consistently reports NOT paid
+ *   'unknown'   — no verify URL, endpoint unreachable, or a suspicious
+ *                 settled-claim with a mismatched preimage (don't trust)
+ *
+ * A handful of quick polls covers the case where the payment settled a beat
+ * after our pay attempt returned/timed out. Never throws.
+ */
+export async function confirmInvoiceSettled(verifyUrl, paymentHash, { attempts = 4, intervalMs = 1500 } = {}) {
+  if (typeof verifyUrl !== 'string' || !verifyUrl.startsWith('https://')) return 'unknown'
+  let sawResponse = false
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(verifyUrl)
+      if (res.ok) {
+        sawResponse = true
+        const data = await res.json().catch(() => null)
+        if (data && data.settled) {
+          if (paymentHash && typeof data.preimage === 'string' && data.preimage.length > 0) {
+            const ok = await verifyPreimageMatches(data.preimage, paymentHash)
+            if (!ok) return 'unknown'   // claims paid but preimage doesn't match — suspicious
+          }
+          return 'settled'
+        }
+      }
+    } catch { /* network blip — try again */ }
+    if (i < attempts - 1) await new Promise(r => setTimeout(r, intervalMs))
+  }
+  // If the endpoint answered at least once (always settled:false) we trust it
+  // as unpaid; if it never answered we genuinely don't know.
+  return sawResponse ? 'unsettled' : 'unknown'
+}

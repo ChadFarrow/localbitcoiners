@@ -59,6 +59,14 @@ function StatusIcon({ status }) {
       </svg>
     )
   }
+  if (status === 'uncertain') {
+    // Amber warning triangle — payment status unknown, not a failure.
+    return (
+      <svg className="w-4 h-4 text-amber-400" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+        <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495ZM10 6a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 10 6Zm0 8a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
+      </svg>
+    )
+  }
   if (WORKING.has(status)) return <Spinner />
   // pending / unknown — dim dot
   return <span className="inline-block w-2 h-2 rounded-full bg-neutral-600" aria-hidden="true" />
@@ -68,6 +76,7 @@ function statusWord(status) {
   switch (status) {
     case 'paid': return 'Sent'
     case 'failed': return 'Failed'
+    case 'uncertain': return 'Unconfirmed'
     case 'paying': return 'Paying…'
     case 'publishing': return 'Publishing…'
     case 'requesting': return 'Invoice…'
@@ -91,13 +100,19 @@ export default function BoostProgressView({
   // single-leg retry re-computes the summary automatically.
   const paidCount = legStates.filter((l) => l?.status === 'paid').length
   const failedCount = legStates.filter((l) => l?.status === 'failed').length
-  const settledCount = paidCount + failedCount
+  const uncertainCount = legStates.filter((l) => l?.status === 'uncertain').length
+  // A leg is "resolved" once it reaches any terminal state (drives the bar).
+  const settledCount = paidCount + failedCount + uncertainCount
   const pct = total > 0 ? Math.round((settledCount / total) * 100) : 0
 
   const done = phase === 'done'
   const allOk = done && total > 0 && paidCount === total
-  const failedAll = done && total > 0 && paidCount === 0 && failedCount === total
-  const partial = done && !allOk && !failedAll
+  // Only call it a clean failure when EVERY leg is confirmed-not-paid (no
+  // unconfirmed legs) — otherwise we'd risk telling the donor "nothing was
+  // charged" when something might have been.
+  const uncertainPresent = done && uncertainCount > 0 && !allOk
+  const failedAll = done && total > 0 && paidCount === 0 && uncertainCount === 0 && failedCount === total
+  const partial = done && !allOk && !failedAll && !uncertainPresent
 
   // Confetti once, when every leg is paid (including reaching all-paid via a
   // retry). Guarded so re-renders can't re-fire it.
@@ -133,7 +148,7 @@ export default function BoostProgressView({
               leave early. We'll let you know the moment it's done.
             </p>
             <p className="text-xs font-medium text-neutral-300 pt-0.5">
-              {settledCount} of {total} sent so far…
+              {paidCount} of {total} sent so far…
             </p>
           </>
         )}
@@ -153,8 +168,20 @@ export default function BoostProgressView({
             <p className="text-xs leading-relaxed text-neutral-400">
               {paidCount} of {total} sent.{' '}
               {failedCount > 0
-                ? 'A failed leg is usually a problem on the recipient’s end, not yours — your wallet wasn’t charged for it. Hit Retry next to any that failed.'
+                ? 'A failed leg is confirmed not paid — your wallet wasn’t charged for it. Hit Retry next to any that failed.'
                 : 'Finishing up…'}
+            </p>
+          </>
+        )}
+        {uncertainPresent && (
+          <>
+            <p className="text-base font-semibold text-amber-400">Some payments couldn’t be confirmed</p>
+            <p className="text-xs leading-relaxed text-neutral-400">
+              {paidCount > 0 && `${paidCount} confirmed sent. `}
+              {uncertainCount} {uncertainCount === 1 ? 'payment' : 'payments'} couldn’t be confirmed
+              {failedCount > 0 ? `, ${failedCount} failed` : ''}.{' '}
+              <span className="text-amber-300">Check your wallet before retrying</span> — an
+              unconfirmed leg may have already gone through, so retrying it could pay twice.
             </p>
           </>
         )}
@@ -162,9 +189,9 @@ export default function BoostProgressView({
           <>
             <p className="text-base font-semibold text-red-400">Boost didn't go through</p>
             <p className="text-xs leading-relaxed text-neutral-400">
-              None of the payments went through — when every leg fails it's
-              almost always your wallet (disconnected, not enough balance, or
-              it declined). Your wallet wasn't charged. Check it, then retry.
+              None of the payments settled — when every leg fails it's almost
+              always your wallet (disconnected, not enough balance, or it
+              declined). Your wallet wasn't charged. Check it, then retry.
             </p>
           </>
         )}
@@ -174,9 +201,9 @@ export default function BoostProgressView({
       <div className="h-1.5 w-full rounded-full bg-neutral-800 overflow-hidden shrink-0">
         <div
           className={`h-full rounded-full transition-[width] duration-300 ${
-            failedAll ? 'bg-red-500' : partial ? 'bg-amber-500' : 'bg-orange-500'
+            failedAll ? 'bg-red-500' : (partial || uncertainPresent) ? 'bg-amber-500' : 'bg-orange-500'
           }`}
-          style={{ width: `${done && !partial ? 100 : pct}%` }}
+          style={{ width: `${done && !partial && !uncertainPresent ? 100 : pct}%` }}
         />
       </div>
 
@@ -221,20 +248,21 @@ export default function BoostProgressView({
                 </span>
 
                 <span className="flex items-center gap-2 flex-shrink-0">
-                  {status === 'failed' && onRetryLeg && !unpayable && (
+                  {(status === 'failed' || status === 'uncertain') && onRetryLeg && !unpayable && (
                     <button
                       onClick={() => onRetryLeg(i)}
                       className="text-[11px] font-medium px-2 py-0.5 rounded bg-orange-500 hover:bg-orange-600 text-white transition-colors"
                     >
-                      Retry
+                      {status === 'uncertain' ? 'Check' : 'Retry'}
                     </button>
                   )}
                   <span className={`text-right ${
                     status === 'paid' ? 'text-green-400'
                       : unpayable ? 'text-amber-400'
                         : status === 'failed' ? 'text-red-400'
-                          : WORKING.has(status) ? 'text-orange-300'
-                            : 'text-neutral-500'
+                          : status === 'uncertain' ? 'text-amber-400'
+                            : WORKING.has(status) ? 'text-orange-300'
+                              : 'text-neutral-500'
                   }`}>
                     {unpayable ? 'Skipped' : statusWord(status)}
                   </span>
