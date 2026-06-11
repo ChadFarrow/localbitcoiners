@@ -38,15 +38,44 @@
   // Tier buckets, top to bottom. `min` is the inclusive lifetime-sats
   // floor; a supporter lands in the first tier they clear.
   var TIERS = [
-    { id: 't100', min: 100000, title: '100k+ Boosters & Streamers' },
-    { id: 't69',  min: 69000,  title: '69k+ Boosters & Streamers' },
-    { id: 't21',  min: 21000,  title: '21k+ Boosters & Streamers' },
-    { id: 't0',   min: 1,      title: 'All Other Boosters & Streamers' },
+    { id: 't100', min: 100000, title: '100k+ Boosters & Streamers', pack: 'lb-supporters-100k' },
+    { id: 't69',  min: 69000,  title: '69k+ Boosters & Streamers',  pack: 'lb-supporters-69k' },
+    { id: 't21',  min: 21000,  title: '21k+ Boosters & Streamers',  pack: 'lb-supporters-21k' },
+    { id: 't0',   min: 1,      title: 'All Other Boosters & Streamers', pack: 'lb-supporters-other' },
   ];
 
   function shortNpub(npub) {
     if (!npub || npub.length < 20) return npub || '';
     return npub.slice(0, 10) + '…' + npub.slice(-4);
+  }
+
+  // ── Follow packs (following.space, kind 39089) ─────────────────────
+  // The show publishes one pack per category (bots/follow-packs); each
+  // category's "Follow Pack" button links to it so people can one-click
+  // follow everyone in that category. Owner = the show account.
+  var SHOW_PUBKEY_HEX = 'c330881e28768381dd8bdfd274341dca0c5882c29b8642ea4bc82f7563264592';
+  var GUESTS_PACK = 'lb-supporters-guests';
+  var CODERS_PACK = 'lb-supporters-coders';
+
+  function followPackUrl(slug) {
+    return 'https://following.space/d/' + slug + '?p=' + SHOW_PUBKEY_HEX;
+  }
+
+  // A small "Follow Pack ↗" link for a section header, or null if no slug.
+  function makeFollowPackLink(slug) {
+    if (!slug) return null;
+    var a = document.createElement('a');
+    a.className = 'sup-follow-pack';
+    a.href = followPackUrl(slug);
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.title = 'Follow everyone in this category on Nostr (opens following.space)';
+    a.appendChild(document.createTextNode('Follow Pack '));
+    var arrow = document.createElement('span');
+    arrow.setAttribute('aria-hidden', 'true');
+    arrow.textContent = '↗';
+    a.appendChild(arrow);
+    return a;
   }
 
   // ── Copy-to-clipboard + toast ──────────────────────────────────────
@@ -181,15 +210,25 @@
     return grid;
   }
 
+  // Title row = heading (+count) on the left, optional Follow Pack link right.
+  function makeHeadRow(tag, title, count, packSlug) {
+    var row = document.createElement('div');
+    row.className = 'sup-head-row';
+    row.appendChild(makeHeading(tag, title, count));
+    var link = makeFollowPackLink(packSlug);
+    if (link) row.appendChild(link);
+    return row;
+  }
+
   // Top-level section (Show Guests, Coding Contributors). Skipped if empty.
-  function renderSection(container, title, sub, cards) {
+  function renderSection(container, title, sub, cards, packSlug) {
     if (!cards.length) return;
     var section = document.createElement('section');
     section.className = 'sup-section';
 
     var head = document.createElement('div');
     head.className = 'sup-section-head';
-    head.appendChild(makeHeading('h2', title, cards.length));
+    head.appendChild(makeHeadRow('h2', title, cards.length, packSlug));
     if (sub) {
       var p = document.createElement('p');
       p.className = 'sup-section-sub';
@@ -227,7 +266,7 @@
       tier.className = 'sup-tier';
       var th = document.createElement('div');
       th.className = 'sup-tier-head';
-      th.appendChild(makeHeading('h3', t.title, t.cards.length));
+      th.appendChild(makeHeadRow('h3', t.title, t.cards.length, t.pack));
       tier.appendChild(th);
       tier.appendChild(buildGrid(t.cards));
       section.appendChild(tier);
@@ -283,7 +322,7 @@
         picture: prof && prof.picture,
       });
     });
-    renderSection(root, 'Show Guests', 'Everyone who’s come on the podcast.', guestCards);
+    renderSection(root, 'Show Guests', 'Everyone who’s come on the podcast.', guestCards, GUESTS_PACK);
 
     // 2. Boosters & Streamers — one group header + note, then a tier each.
     var buckets = Object.create(null);
@@ -302,7 +341,7 @@
       root,
       'Boosters & Streamers',
       'Lifetime sats sent via boosts + streams. Anonymous supporters aren’t shown.',
-      TIERS.map(function (t) { return { title: t.title, cards: buckets[t.id] }; })
+      TIERS.map(function (t) { return { title: t.title, cards: buckets[t.id], pack: t.pack }; })
     );
 
     // 3. Coding Contributors.
@@ -314,7 +353,7 @@
         picture: prof && prof.picture,
       });
     });
-    renderSection(root, 'Coding Contributors', 'Builders who’ve shipped code to the site and bots.', contribCards);
+    renderSection(root, 'Coding Contributors', 'Builders who’ve shipped code to the site and bots.', contribCards, CODERS_PACK);
   }
 
   function collectNpubs(people, guestNpubs) {
