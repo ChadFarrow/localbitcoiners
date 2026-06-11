@@ -23,11 +23,12 @@
   var SATS_URL = '/data/sats.json';
   var GUESTS_URL = '/api/guests';
 
-  // Hosts — excluded from the booster tiers (mirrors stats.js HOST_NPUBS).
-  var HOST_NPUBS = {
-    'npub1xgyjasdztryl9sg6nfdm2wcj0j3qjs03sq7a0an32pg0lr5l6yaqxhgu7s': true, // Reed
-    'npub1f5pre6wl6ad87vr4hr5wppqq30sh58m4p33mthnjreh03qadcajs7gwt3z': true, // Rev Hodl
-  };
+  // Hosts — shown in their own "Hosts" group (no follow pack), AND counted
+  // in the Supporters tiers by what they've boosted (no longer excluded).
+  var HOSTS = [
+    { npub: 'npub1xgyjasdztryl9sg6nfdm2wcj0j3qjs03sq7a0an32pg0lr5l6yaqxhgu7s', label: 'Reed' },
+    { npub: 'npub1f5pre6wl6ad87vr4hr5wppqq30sh58m4p33mthnjreh03qadcajs7gwt3z', label: 'Rev Hodl' },
+  ];
 
   // Coding Contributors — maintained by hand. Reed will say when to add.
   var CODING_CONTRIBUTORS = [
@@ -38,10 +39,10 @@
   // Tier buckets, top to bottom. `min` is the inclusive lifetime-sats
   // floor; a supporter lands in the first tier they clear.
   var TIERS = [
-    { id: 't100', min: 100000, title: '100k+ Boosters & Streamers', pack: 'lb-supporters-100k' },
-    { id: 't69',  min: 69000,  title: '69k+ Boosters & Streamers',  pack: 'lb-supporters-69k' },
-    { id: 't21',  min: 21000,  title: '21k+ Boosters & Streamers',  pack: 'lb-supporters-21k' },
-    { id: 't0',   min: 1,      title: 'All Other Boosters & Streamers', pack: 'lb-supporters-other' },
+    { id: 't100', min: 100000, title: '100k+ Sovereigns',   pack: 'lb-supporters-100k', featured: true },
+    { id: 't69',  min: 69000,  title: '69k+ Frontiersmen',  pack: 'lb-supporters-69k',  featured: true },
+    { id: 't21',  min: 21000,  title: '21k+ Trailblazers',  pack: 'lb-supporters-21k',  featured: true },
+    { id: 't0',   min: 1,      title: 'Pioneers',           pack: 'lb-supporters-other' },
   ];
 
   function shortNpub(npub) {
@@ -214,19 +215,22 @@
   }
 
   // Title + count badge as a heading element (h2 or h3).
+  // `count` may be null to omit the count badge (e.g. tier sub-headers).
   function makeHeading(tag, title, count) {
     var h = document.createElement(tag);
     h.textContent = title;
-    var badge = document.createElement('span');
-    badge.className = 'sup-count';
-    badge.textContent = String(count);
-    h.appendChild(badge);
+    if (count != null) {
+      var badge = document.createElement('span');
+      badge.className = 'sup-count';
+      badge.textContent = String(count);
+      h.appendChild(badge);
+    }
     return h;
   }
 
-  function buildGrid(cards) {
+  function buildGrid(cards, centered) {
     var grid = document.createElement('div');
-    grid.className = 'sup-grid';
+    grid.className = 'sup-grid' + (centered ? ' sup-grid--centered' : '');
     for (var i = 0; i < cards.length; i++) grid.appendChild(cards[i]);
     return grid;
   }
@@ -241,15 +245,16 @@
     return row;
   }
 
-  // Top-level section (Show Guests, Coding Contributors). Skipped if empty.
-  function renderSection(container, title, sub, cards, packSlug) {
+  // Top-level section (Show Guests, Coding Contributors, Hosts). Skipped if
+  // empty. `centered` centers the pfp grid (for small/curated groups).
+  function renderSection(container, title, sub, cards, packSlug, centered) {
     if (!cards.length) return;
     var section = document.createElement('section');
     section.className = 'sup-section';
 
     var head = document.createElement('div');
     head.className = 'sup-section-head';
-    head.appendChild(makeHeadRow('h2', title, cards.length, packSlug));
+    head.appendChild(makeHeadRow('h2', title, null, packSlug));
     if (sub) {
       var p = document.createElement('p');
       p.className = 'sup-section-sub';
@@ -257,7 +262,7 @@
       head.appendChild(p);
     }
     section.appendChild(head);
-    section.appendChild(buildGrid(cards));
+    section.appendChild(buildGrid(cards, centered));
     container.appendChild(section);
   }
 
@@ -266,14 +271,13 @@
   function renderBoosterGroup(container, title, note, tiers) {
     var live = tiers.filter(function (t) { return t.cards.length; });
     if (!live.length) return;
-    var total = live.reduce(function (n, t) { return n + t.cards.length; }, 0);
 
     var section = document.createElement('section');
     section.className = 'sup-section';
 
     var head = document.createElement('div');
     head.className = 'sup-section-head';
-    head.appendChild(makeHeading('h2', title, total));
+    head.appendChild(makeHeadRow('h2', title, null, null));
     if (note) {
       var p = document.createElement('p');
       p.className = 'sup-section-sub';
@@ -284,10 +288,10 @@
 
     live.forEach(function (t) {
       var tier = document.createElement('div');
-      tier.className = 'sup-tier';
+      tier.className = 'sup-tier' + (t.featured ? ' sup-tier--featured' : '');
       var th = document.createElement('div');
       th.className = 'sup-tier-head';
-      th.appendChild(makeHeadRow('h3', t.title, t.cards.length, t.pack));
+      th.appendChild(makeHeadRow('h3', t.title, null, t.pack));
       tier.appendChild(th);
       tier.appendChild(buildGrid(t.cards));
       section.appendChild(tier);
@@ -304,7 +308,6 @@
       var sats = typeof r.total_sats === 'number' ? r.total_sats : 0;
       if (sats <= 0) continue;
       var npub = r.sender_npub || '';
-      if (npub && HOST_NPUBS[npub]) continue;            // hosts don't rank
       var key = npub || (r.sender_name ? 'name:' + r.sender_name : '');
       if (!key) continue;                                 // truly anonymous → skip
       var rec = byKey[key];
@@ -334,53 +337,44 @@
 
     function profFor(npub) { return (npub && cache[npub]) || null; }
 
-    // 1. Show Guests — at the top of the page.
-    var guestCards = guestNpubs.map(function (npub) {
+    function cardFor(npub, label) {
       var prof = profFor(npub);
-      return makeCard({
-        npub: npub,
-        name: (prof && prof.name) || null,
-        picture: prof && prof.picture,
-      });
-    });
-    renderSection(root, 'Show Guests', 'Everyone who’s come on the podcast.', guestCards, GUESTS_PACK);
+      return makeCard({ npub: npub, name: (prof && prof.name) || label || null, picture: prof && prof.picture });
+    }
 
-    // 2. Boosters & Streamers — one group header + note, then a tier each.
+    // 1. Supporters — boost/stream tiers. One group header + note, then a tier each.
     var buckets = Object.create(null);
     TIERS.forEach(function (t) { buckets[t.id] = []; });
     people.forEach(function (p) {
       var tid = tierOf(p.sats);
       if (!tid) return;
-      var prof = profFor(p.npub);
-      buckets[tid].push(makeCard({
-        npub: p.npub,
-        name: (prof && prof.name) || p.name || null,
-        picture: prof && prof.picture,
-      }));
+      buckets[tid].push(cardFor(p.npub, p.name));
     });
     renderBoosterGroup(
       root,
-      'Boosters & Streamers',
+      'Supporters',
       'Lifetime sats sent via boosts + streams. Anonymous supporters aren’t shown.',
-      TIERS.map(function (t) { return { title: t.title, cards: buckets[t.id], pack: t.pack }; })
+      TIERS.map(function (t) { return { title: t.title, cards: buckets[t.id], pack: t.pack, featured: t.featured }; })
     );
 
-    // 3. Coding Contributors.
-    var contribCards = CODING_CONTRIBUTORS.map(function (c) {
-      var prof = profFor(c.npub);
-      return makeCard({
-        npub: c.npub,
-        name: (prof && prof.name) || c.label,
-        picture: prof && prof.picture,
-      });
-    });
-    renderSection(root, 'Coding Contributors', 'Builders who’ve shipped code to the site and bots.', contribCards, CODERS_PACK);
+    // 2. Show Guests — below the supporters.
+    renderSection(root, 'Show Guests', 'Everyone who’s come on the podcast.',
+      guestNpubs.map(function (n) { return cardFor(n, null); }), GUESTS_PACK);
+
+    // 3. Coding Contributors — small group, centered pfps.
+    renderSection(root, 'Coding Contributors', 'Builders who’ve shipped code to the site and bots.',
+      CODING_CONTRIBUTORS.map(function (c) { return cardFor(c.npub, c.label); }), CODERS_PACK, true);
+
+    // 4. Hosts — no follow pack; small group, centered pfps.
+    renderSection(root, 'Hosts', 'The folks behind the mic.',
+      HOSTS.map(function (h) { return cardFor(h.npub, h.label); }), null, true);
   }
 
   function collectNpubs(people, guestNpubs) {
     var set = Object.create(null);
     people.forEach(function (p) { if (p.npub) set[p.npub] = true; });
     CODING_CONTRIBUTORS.forEach(function (c) { set[c.npub] = true; });
+    HOSTS.forEach(function (h) { set[h.npub] = true; });
     guestNpubs.forEach(function (n) { set[n] = true; });
     return Object.keys(set);
   }
