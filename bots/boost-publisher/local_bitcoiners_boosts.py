@@ -161,7 +161,11 @@ def main():
             if zap_tags:
                 print(f"  Zap split: {len(zap_tags)} recipients")
 
-            # NIP-73 podcast GUID tags (feed always, episode item GUID when known).
+            # NIP-73 podcast GUID tags (feed always, episode item GUID when
+            # known) — on the STANDALONE note ONLY. The boost-board reply is
+            # identical text from the same npub, so tagging it too would make
+            # a GUID-aware client surface every boost twice; the reply stays
+            # discoverable through the thread instead.
             all_tags = zap_tags + build_podcast_guid_tags(info)
 
             print("  Publishing standalone note...")
@@ -171,7 +175,7 @@ def main():
 
             if boost_board:
                 print("  Publishing reply to boost board...")
-                publish_to_nostr(note, nsec, reply_to_event_id=boost_board, extra_tags=all_tags)
+                publish_to_nostr(note, nsec, reply_to_event_id=boost_board, extra_tags=zap_tags)
         elif effective_dryrun and nsec:
             print("  Building zap splits...")
             zap_tags = build_zap_splits_for_note(note, nsec)
@@ -185,9 +189,10 @@ def main():
             # dry-run: the preview id wouldn't exist on real relays, and
             # persisting it would corrupt future production runs.
             if boost_board:
+                # Reply omits the NIP-73 guid tags — see the live path above.
                 path, _ = write_dry_run_event(
                     note, nsec, prefix="boosts-reply",
-                    extra_tags=all_tags, reply_to_event_id=boost_board, suffix=suffix,
+                    extra_tags=zap_tags, reply_to_event_id=boost_board, suffix=suffix,
                 )
                 print(f"  [dry-run] boost-board reply → {path}")
         else:
