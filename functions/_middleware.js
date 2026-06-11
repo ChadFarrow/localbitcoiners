@@ -580,13 +580,13 @@ function renderEpisodePage(ep) {
     <nav aria-label="Main navigation">
       <ul>
         <li><a href="/boosts.html">Boosts</a></li>
-        <li><a href="/meetups">Meetups</a></li>
+        <li><a href="/supporters">Supporters</a></li>
         <li><a href="/stats.html">Stats</a></li>
         <li>
           <details class="nav-more">
             <summary>More <span class="caret" aria-hidden="true">▾</span></summary>
             <ul class="nav-more-menu">
-              <li><a href="/supporters">Supporters</a></li>
+              <li><a href="/meetups">Meetups</a></li>
               <li><a href="/#meetups">Resources</a></li>
               <li><a href="/#links">Links</a></li>
             </ul>
