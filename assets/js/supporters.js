@@ -38,9 +38,9 @@
   // Tier buckets, top to bottom. `min` is the inclusive lifetime-sats
   // floor; a supporter lands in the first tier they clear.
   var TIERS = [
-    { id: 't100', min: 100000, title: '100k+ Boosters' },
-    { id: 't69',  min: 69000,  title: '69k+ Boosters' },
-    { id: 't21',  min: 21000,  title: '21k+ Boosters' },
+    { id: 't100', min: 100000, title: '100k+ Boosters & Streamers' },
+    { id: 't69',  min: 69000,  title: '69k+ Boosters & Streamers' },
+    { id: 't21',  min: 21000,  title: '21k+ Boosters & Streamers' },
     { id: 't0',   min: 1,      title: 'All Other Boosters & Streamers' },
   ];
 
@@ -116,6 +116,25 @@
     }
   }
 
+  // Title + count badge as a heading element (h2 or h3).
+  function makeHeading(tag, title, count) {
+    var h = document.createElement(tag);
+    h.textContent = title;
+    var badge = document.createElement('span');
+    badge.className = 'sup-count';
+    badge.textContent = String(count);
+    h.appendChild(badge);
+    return h;
+  }
+
+  function buildGrid(cards) {
+    var grid = document.createElement('div');
+    grid.className = 'sup-grid';
+    for (var i = 0; i < cards.length; i++) grid.appendChild(cards[i]);
+    return grid;
+  }
+
+  // Top-level section (Show Guests, Coding Contributors). Skipped if empty.
   function renderSection(container, title, sub, cards) {
     if (!cards.length) return;
     var section = document.createElement('section');
@@ -123,13 +142,7 @@
 
     var head = document.createElement('div');
     head.className = 'sup-section-head';
-    var h2 = document.createElement('h2');
-    h2.textContent = title;
-    var badge = document.createElement('span');
-    badge.className = 'sup-count';
-    badge.textContent = String(cards.length);
-    h2.appendChild(badge);
-    head.appendChild(h2);
+    head.appendChild(makeHeading('h2', title, cards.length));
     if (sub) {
       var p = document.createElement('p');
       p.className = 'sup-section-sub';
@@ -137,11 +150,41 @@
       head.appendChild(p);
     }
     section.appendChild(head);
+    section.appendChild(buildGrid(cards));
+    container.appendChild(section);
+  }
 
-    var grid = document.createElement('div');
-    grid.className = 'sup-grid';
-    for (var i = 0; i < cards.length; i++) grid.appendChild(cards[i]);
-    section.appendChild(grid);
+  // The Boosters & Streamers group: one section header + note, then a
+  // lighter sub-header per tier. `tiers` is [{ title, cards }, …].
+  function renderBoosterGroup(container, title, note, tiers) {
+    var live = tiers.filter(function (t) { return t.cards.length; });
+    if (!live.length) return;
+    var total = live.reduce(function (n, t) { return n + t.cards.length; }, 0);
+
+    var section = document.createElement('section');
+    section.className = 'sup-section';
+
+    var head = document.createElement('div');
+    head.className = 'sup-section-head';
+    head.appendChild(makeHeading('h2', title, total));
+    if (note) {
+      var p = document.createElement('p');
+      p.className = 'sup-section-sub';
+      p.textContent = note;
+      head.appendChild(p);
+    }
+    section.appendChild(head);
+
+    live.forEach(function (t) {
+      var tier = document.createElement('div');
+      tier.className = 'sup-tier';
+      var th = document.createElement('div');
+      th.className = 'sup-tier-head';
+      th.appendChild(makeHeading('h3', t.title, t.cards.length));
+      tier.appendChild(th);
+      tier.appendChild(buildGrid(t.cards));
+      section.appendChild(tier);
+    });
 
     container.appendChild(section);
   }
@@ -184,7 +227,18 @@
 
     function profFor(npub) { return (npub && cache[npub]) || null; }
 
-    // 1. Booster tiers.
+    // 1. Show Guests — at the top of the page.
+    var guestCards = guestNpubs.map(function (npub) {
+      var prof = profFor(npub);
+      return makeCard({
+        npub: npub,
+        name: (prof && prof.name) || null,
+        picture: prof && prof.picture,
+      });
+    });
+    renderSection(root, 'Show Guests', 'Everyone who’s come on the podcast.', guestCards);
+
+    // 2. Boosters & Streamers — one group header + note, then a tier each.
     var buckets = Object.create(null);
     TIERS.forEach(function (t) { buckets[t.id] = []; });
     people.forEach(function (p) {
@@ -197,16 +251,14 @@
         picture: prof && prof.picture,
       }));
     });
-    TIERS.forEach(function (t, idx) {
-      renderSection(
-        root,
-        t.title,
-        idx === 0 ? 'Lifetime sats sent via boosts + streams. Anonymous supporters aren’t shown.' : '',
-        buckets[t.id]
-      );
-    });
+    renderBoosterGroup(
+      root,
+      'Boosters & Streamers',
+      'Lifetime sats sent via boosts + streams. Anonymous supporters aren’t shown.',
+      TIERS.map(function (t) { return { title: t.title, cards: buckets[t.id] }; })
+    );
 
-    // 2. Coding Contributors.
+    // 3. Coding Contributors.
     var contribCards = CODING_CONTRIBUTORS.map(function (c) {
       var prof = profFor(c.npub);
       return makeCard({
@@ -216,17 +268,6 @@
       });
     });
     renderSection(root, 'Coding Contributors', 'Builders who’ve shipped code to the site and bots.', contribCards);
-
-    // 3. Show Guests.
-    var guestCards = guestNpubs.map(function (npub) {
-      var prof = profFor(npub);
-      return makeCard({
-        npub: npub,
-        name: (prof && prof.name) || null,
-        picture: prof && prof.picture,
-      });
-    });
-    renderSection(root, 'Show Guests', 'Everyone who’s come on the podcast.', guestCards);
   }
 
   function collectNpubs(people, guestNpubs) {
