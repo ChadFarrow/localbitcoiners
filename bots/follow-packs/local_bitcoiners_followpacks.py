@@ -52,12 +52,9 @@ SHOW_NPUB  = "npub1cvcgs83gw6pcrhvtmlf8gdqaegx93qkznwry96jteqhh2cexgkfq45rtya"
 SHOW_HEX   = "c330881e28768381dd8bdfd274341dca0c5882c29b8642ea4bc82f7563264592"
 PACK_IMAGE = "https://localbitcoiners.com/assets/LocalBitcoiners.png"
 
-# Hosts — excluded from the booster tiers (mirrors HOST_NPUBS in supporters.js
-# / stats.js). Reed still appears in the coders pack below.
-HOST_NPUBS = {
-    "npub1xgyjasdztryl9sg6nfdm2wcj0j3qjs03sq7a0an32pg0lr5l6yaqxhgu7s",  # Reed
-    "npub1f5pre6wl6ad87vr4hr5wppqq30sh58m4p33mthnjreh03qadcajs7gwt3z",  # Rev Hodl
-}
+# Hosts (Reed + Rev) are NO LONGER excluded from the booster tiers — they rank
+# by what they've boosted, same as any supporter (mirrors supporters.js, which
+# dropped the host exclusion 2026-06-11; Reed asked to be included in the packs).
 
 # Coding contributors — hardcoded, mirrors CODING_CONTRIBUTORS in supporters.js.
 # Reed maintains this by hand; keep in sync with the website list.
@@ -105,12 +102,13 @@ def load_sats_rows():
 
 def compute_tier_members(rows):
     """{tier_slug: [npub, ...]} — lifetime total_sats per sender_npub (boosts +
-    streams), hosts excluded, name-only (no npub) supporters omitted. Each npub
-    in the first tier it clears."""
+    streams); name-only (no npub) supporters omitted. Hosts (Reed/Rev) are
+    included by what they've boosted, mirroring supporters.js. Each npub in the
+    first tier it clears."""
     totals = {}
     for r in rows:
         npub = (r.get("sender_npub") or "").strip()
-        if not npub or npub in HOST_NPUBS:
+        if not npub:
             continue
         try:
             totals[npub] = totals.get(npub, 0) + int(r.get("total_sats") or 0)
