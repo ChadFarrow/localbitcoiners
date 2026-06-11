@@ -38,10 +38,10 @@
   // Tier buckets, top to bottom. `min` is the inclusive lifetime-sats
   // floor; a supporter lands in the first tier they clear.
   var TIERS = [
-    { id: 't100', min: 100000, title: '100k+ Boosters & Streamers', pack: 'lb-supporters-100k', sub: 'Listeners who’ve sent 100,000+ sats all-time.' },
-    { id: 't69',  min: 69000,  title: '69k+ Boosters & Streamers',  pack: 'lb-supporters-69k',  sub: 'Listeners who’ve sent 69,000+ sats all-time.' },
-    { id: 't21',  min: 21000,  title: '21k+ Boosters & Streamers',  pack: 'lb-supporters-21k',  sub: 'Listeners who’ve sent 21,000+ sats all-time.' },
-    { id: 't0',   min: 1,      title: 'All Other Boosters & Streamers', pack: 'lb-supporters-other', sub: 'Everyone else who’s boosted or streamed sats.' },
+    { id: 't100', min: 100000, title: '100k+ Boosters & Streamers', pack: 'lb-supporters-100k' },
+    { id: 't69',  min: 69000,  title: '69k+ Boosters & Streamers',  pack: 'lb-supporters-69k' },
+    { id: 't21',  min: 21000,  title: '21k+ Boosters & Streamers',  pack: 'lb-supporters-21k' },
+    { id: 't0',   min: 1,      title: 'All Other Boosters & Streamers', pack: 'lb-supporters-other' },
   ];
 
   function shortNpub(npub) {
@@ -267,12 +267,6 @@
       var th = document.createElement('div');
       th.className = 'sup-tier-head';
       th.appendChild(makeHeadRow('h3', t.title, t.cards.length, t.pack));
-      if (t.sub) {
-        var sp = document.createElement('p');
-        sp.className = 'sup-section-sub';
-        sp.textContent = t.sub;
-        th.appendChild(sp);
-      }
       tier.appendChild(th);
       tier.appendChild(buildGrid(t.cards));
       section.appendChild(tier);
@@ -347,7 +341,7 @@
       root,
       'Boosters & Streamers',
       'Lifetime sats sent via boosts + streams. Anonymous supporters aren’t shown.',
-      TIERS.map(function (t) { return { title: t.title, cards: buckets[t.id], pack: t.pack, sub: t.sub }; })
+      TIERS.map(function (t) { return { title: t.title, cards: buckets[t.id], pack: t.pack }; })
     );
 
     // 3. Coding Contributors.

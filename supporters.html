@@ -366,6 +366,13 @@
        lighter (no border) than the top-level section headings. */
     .sup-tier { margin-top: 1.85rem; }
     .sup-tier-head { margin-bottom: 1rem; }
+    /* Full-width rule under the tier header row — runs under the title and
+       the Follow Pack pill, tying the button to its tier (matches the
+       top-level sections; lighter weight to keep tiers subordinate). */
+    .sup-tier-head .sup-head-row {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.45rem;
+    }
     .sup-tier-head h3 {
       font-family: 'Playfair Display', Georgia, serif;
       font-size: 1.05rem;
