@@ -253,7 +253,15 @@ SENDER_OVERRIDES = {
         "sender_name": "",
     },
     # btcwrestle — boost the leaderboard should bucket by name rather than npub.
+    # Ep. 008, 15,000 sats — signed his name in the message ("-btcwrestle").
     "2c080dad8d607e8a531790b2a4d4848f8fdb9c99bdc5a387b8a26bb39372366f": {
+        "sender_npub": "",
+        "sender_name": "btcwrestle",
+    },
+    # btcwrestle — Ep. 015, ~69,420 sats, submitted anon but included his own
+    # npub in the message (npub1q8ks84vvjr9gyqs6mwnr6s8q4esaff3e60nykzzm6xtkmjns7dfqyhp6gc).
+    # Attributed by NAME (not npub) to bucket with his other boost.
+    "c36b4491d983d2b08426d308f69e4d4dd31b0d0fda320dbaa981e85957595df0": {
         "sender_npub": "",
         "sender_name": "btcwrestle",
     },
