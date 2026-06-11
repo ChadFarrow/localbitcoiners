@@ -26,7 +26,6 @@ import {
   buildTzDropdownList,
   formToPublishShape,
   eventToForm,
-  formToEventTemplate,
   fetchEventForLoader,
 } from '../lib/eventForm.js'
 import { publishCalendarEvent } from '../lib/eventPublish.js'
@@ -39,6 +38,7 @@ import {
 } from '../lib/eventAnnouncement.js'
 import PasswordManagerHoneypot from './PasswordManagerHoneypot.jsx'
 import ImportExportDisclosure from './ImportExportDisclosure.jsx'
+import MyEventsCopyList from './MyEventsCopyList.jsx'
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
@@ -81,6 +81,9 @@ export default function EventComposer({
   const [naddrLoading, setNaddrLoading] = useState(false)
   const [importError, setImportError] = useState('')
   const [importLoading, setImportLoading] = useState(false)
+  // Lazy-load the "Copy from your meetups" list only once the disclosure
+  // is opened — gates the relay round-trip.
+  const [ieOpen, setIeOpen] = useState(false)
 
   const fileInputRef = useRef(null)
 
@@ -153,28 +156,22 @@ export default function EventComposer({
     }
   }, [naddrInput, sessionUser])
 
-  const handleExport = useCallback(() => {
-    if (!form?.title?.trim() || !form?.startDate) return
-    try {
-      const ev = formToEventTemplate(form, { pubkey: sessionUser?.pubkey || '' })
-      const blob = new Blob([JSON.stringify(ev, null, 2)], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const slug = (form.title || 'event')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(0, 50) || 'event'
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${slug}.json`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-    } catch {
-      // Safety net — disabled in the UI when title/start are missing.
+  // Copy one of the user's own meetups into the form. Same end state as
+  // pasting its naddr — we already hold the raw event from the list, so
+  // there's no second relay fetch. The d-tag is stripped so publishing
+  // creates a brand-new meetup rather than overwriting the original.
+  const handleCopyExisting = useCallback((rawEvent) => {
+    if (!rawEvent) return
+    const snapshot = eventToForm(rawEvent)
+    if (!snapshot) {
+      setNaddrError('Could not copy that meetup.')
+      return
     }
-  }, [form, sessionUser])
+    setForm({ ...snapshot, dTag: '' })
+    setNaddrInput('')
+    setNaddrError('')
+    setError('')
+  }, [])
 
   const handleImageFile = useCallback(async (file) => {
     if (!file || imageUploading) return
@@ -337,11 +334,14 @@ export default function EventComposer({
         pasteIdPlaceholder="naddr1… / nevent1…"
         loadLoading={naddrLoading}
         loadError={naddrError}
-        exportLabel="Export JSON"
-        onExport={handleExport}
-        exportDisabled={!form.title?.trim() || !form.startDate}
-        exportTitle="Export current event as JSON"
-      />
+        onToggle={setIeOpen}
+      >
+        <MyEventsCopyList
+          pubkey={sessionUser?.pubkey}
+          enabled={ieOpen}
+          onCopy={handleCopyExisting}
+        />
+      </ImportExportDisclosure>
 
       {/* Title */}
       <div>
