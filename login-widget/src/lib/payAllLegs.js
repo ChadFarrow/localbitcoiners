@@ -60,7 +60,7 @@ import {
   fetchLnurlInvoice,
   bolt11PaymentHash,
   buildDonationBoostagramTemplate,
-  signDonationBoostagramWithUser,
+  signDonationBoostagramWithUserResilient,
   signDonationBoostagramWithBurner,
   publishSignedBoostagram,
 } from './boostagram.js'
@@ -400,9 +400,15 @@ export async function presignAllowlistedLegs({
 
         let signedEvent = null
         try {
-          signedEvent = await signDonationBoostagramWithUser(userTemplate)
+          // Resilient sign: retries transient signer rejects (e.g. a
+          // NIP-07 extension throttling under rapid back-to-back boosts)
+          // before conceding. Without the retry a single hiccup dropped
+          // the boost to the anonymous burner path below and lost the
+          // logged-in donor's attribution.
+          signedEvent = await signDonationBoostagramWithUserResilient(userTemplate)
         } catch (e) {
-          // Burner fallback: signer rejected/timed out. The receipt
+          // Burner fallback: signer genuinely unavailable (every retry
+          // failed, or a slow timeout / bunker non-approval). The receipt
           // becomes effectively anonymous — we strip the donor's npub
           // from the `sender` tag because a burner key can't
           // cryptographically vouch for it, and keeping the npub here

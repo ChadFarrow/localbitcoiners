@@ -321,6 +321,41 @@ export async function signDonationBoostagramWithUser(template) {
   return ev.toNostrEvent()
 }
 
+/**
+ * Sign with the user's signer, retrying transient failures before giving
+ * up. Rapid back-to-back boosts can make a NIP-07 extension (or NDK's
+ * signer queue) reject a sign request that would succeed a moment later;
+ * a single attempt then drops the boost to an anonymous burner and
+ * silently loses the donor's attribution (the "logged-in but published
+ * as Anon" bug). Retrying with a short backoff lets a momentary signer
+ * hiccup recover.
+ *
+ * Only *fast* failures are retried. A failure slower than `fastFailMs` is
+ * a real timeout or a remote signer (bunker) waiting on approval —
+ * retrying there just multiplies the wait, so we surface it to the
+ * caller's burner fallback immediately. Worst case for the common
+ * fast-reject path is ~`backoffMs`×(attempts-1) of added latency.
+ */
+export async function signDonationBoostagramWithUserResilient(template, {
+  attempts = 3,
+  backoffMs = 500,
+  fastFailMs = 4000,
+} = {}) {
+  let lastErr
+  for (let i = 0; i < attempts; i++) {
+    const startedAt = Date.now()
+    try {
+      return await signDonationBoostagramWithUser(template)
+    } catch (e) {
+      lastErr = e
+      const elapsed = Date.now() - startedAt
+      if (i >= attempts - 1 || elapsed >= fastFailMs) break
+      await new Promise(r => setTimeout(r, backoffMs * (i + 1)))
+    }
+  }
+  throw lastErr
+}
+
 /** Sign a pre-built kind 30078 template with a single-use burner key. */
 export function signDonationBoostagramWithBurner(template, burnerSk) {
   return finalizeEvent(template, burnerSk)
