@@ -640,6 +640,8 @@ def _new_info(source, payment_hash, settled_at, our_msats, total_msats, divisor)
         "raw_tx":         None,
     }
 
+_RECEIPT_NPUB_RE = re.compile(r"^npub1[02-9ac-hj-np-z]{58}$")
+
 def _website_intended_from_rss(leg_msats, leg_recipient, item_guid, show_level, cache):
     """Reconstruct a website boost's intended total from a single leg using the
     episode's RSS <podcast:value> split, mirroring the website's distribution:
@@ -768,6 +770,7 @@ def _classify_website(tx, ep_num_padded, payment_hash, settled_at, our_msats, ca
     r_paid_msats     = 0
     r_intended_msats = 0
     r_legs_failed    = 0
+    r_sender         = ""
     if receipt:
         rtags = {t[0]: t[1] for t in receipt.get("tags", []) if len(t) >= 2}
         try:    r_intended_msats = int(rtags.get("amount", 0) or 0)
@@ -776,6 +779,23 @@ def _classify_website(tx, ep_num_padded, payment_hash, settled_at, our_msats, ca
         except Exception: r_paid_msats = 0
         try:    r_legs_failed = int(rtags.get("legs_failed", 0) or 0)
         except Exception: r_legs_failed = 0
+        r_sender = (rtags.get("sender", "") or "").strip()
+
+    # Recover attribution for an anon (burner-signed) leg from the boost
+    # receipt's claimed sender npub. When a donor's signer is unavailable (e.g.
+    # a mobile wallet that pays over NWC but can't sign), the per-leg 30078
+    # falls back to a burner key with an EMPTY sender — published as Anon — even
+    # though the donor was logged in. The receipt, published from the same boost
+    # session, still carries their npub as a claimed tag. We only reach this code
+    # because the node RECEIVED this leg as a SETTLED payment, so a forged
+    # receipt with no payment behind it never gets here; the sole residual risk
+    # is a donor spending real sats while claiming someone else's npub — a
+    # self-funded, pointless attack. So for a real paid boost we trust the claim.
+    # A cryptographically-signed leg sender (non-empty) always takes precedence.
+    if not sender_npub and _RECEIPT_NPUB_RE.match(r_sender):
+        sender_npub = r_sender
+        print(f"  [info] website boost {payment_hash[:12]}... — anon leg; "
+              f"attributed to receipt's claimed sender {r_sender[:20]}...")
 
     # ── Show-level branch ──
     if ep_num_padded is None:

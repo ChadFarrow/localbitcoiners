@@ -265,6 +265,16 @@ SENDER_OVERRIDES = {
         "sender_npub": "",
         "sender_name": "btcwrestle",
     },
+    # Matthew D — Ep. 015, 5,000 sats. Logged in (the boost_receipt's claimed
+    # sender carries his npub — same npub as his ~80k prior supporter total),
+    # but the per-leg 30078 fell back to a burner with an empty sender (signer
+    # dropout on Chrome/Android NWC) so it published Anon. Credit the full 5k.
+    # (The receipt reported all legs failed, but reed's leg actually settled on
+    # the node — a wallet-reply false-negative; out-of-band verify fix in progress.)
+    "9e946408f44b8e0b5d87aa9a111f5ec1acab81b1278382dcde72b649dd783e9c": {
+        "sender_npub": "npub1z3h8afkwknffxyspvjde77sj6euy66rtyul7qlkl7f2ygktxdqasnn760f",
+        "sender_name": "",
+    },
     # Permanerd's rapid-fire spree (2026-06-07 03:08-03:18Z) — he boosted every
     # episode in order. For two consecutive boosts the website signer momentarily
     # dropped out, so the per-leg kind 30078 fell back to an anonymous burner key
