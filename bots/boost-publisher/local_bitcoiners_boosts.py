@@ -13,6 +13,7 @@ from nostr_utils import (
 from boost_formatter import (
     build_note_from_tx, load_published_events, save_published_events,
     record_published_event, make_cache, is_dry_run, persist_cache,
+    build_podcast_guid_tags,
 )
 
 # --- Config ---
@@ -160,8 +161,15 @@ def main():
             if zap_tags:
                 print(f"  Zap split: {len(zap_tags)} recipients")
 
+            # NIP-73 podcast GUID tags (feed always, episode item GUID when
+            # known) — on the STANDALONE note ONLY. The boost-board reply is
+            # identical text from the same npub, so tagging it too would make
+            # a GUID-aware client surface every boost twice; the reply stays
+            # discoverable through the thread instead.
+            all_tags = zap_tags + build_podcast_guid_tags(info)
+
             print("  Publishing standalone note...")
-            standalone_id = publish_to_nostr(note, nsec, extra_tags=zap_tags)
+            standalone_id = publish_to_nostr(note, nsec, extra_tags=all_tags)
             if standalone_id:
                 record_published_event(published_events, payment_hash, standalone_id, settled_at)
 
@@ -171,15 +179,17 @@ def main():
         elif effective_dryrun and nsec:
             print("  Building zap splits...")
             zap_tags = build_zap_splits_for_note(note, nsec)
+            all_tags = zap_tags + build_podcast_guid_tags(info)
             suffix   = payment_hash[:12] or None
             path, standalone_id = write_dry_run_event(
-                note, nsec, prefix="boosts", extra_tags=zap_tags, suffix=suffix,
+                note, nsec, prefix="boosts", extra_tags=all_tags, suffix=suffix,
             )
             print(f"  [dry-run] standalone → {path}")
             # Deliberately NOT recording standalone_id to published_events in
             # dry-run: the preview id wouldn't exist on real relays, and
             # persisting it would corrupt future production runs.
             if boost_board:
+                # Reply omits the NIP-73 guid tags — see the live path above.
                 path, _ = write_dry_run_event(
                     note, nsec, prefix="boosts-reply",
                     extra_tags=zap_tags, reply_to_event_id=boost_board, suffix=suffix,
