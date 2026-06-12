@@ -10,7 +10,7 @@
  *   - episodeMeta with `kind: 'show'` so the in-flight dropdown reads
  *     "Show" and the bot can distinguish show-level boosts from
  *     episode boosts via empty episode/title/guid tags
- *   - sat presets (100/210/2100/21000)
+ *   - sat presets (100/420/3333/21000)
  *   - "Boost the Show" button label
  *
  * applyRecipientOverrides runs at module init for symmetry with the
@@ -45,7 +45,7 @@ const SHOW_SPLITS = {
 // signal the bot needs (paired with the "LocalBitcoinersShow" LNURL
 // comment from formatEpisodeComment(null)).
 const SHOW_EPISODE_META = { number: null, title: '', guid: '', kind: 'show' }
-const SHOW_PRESETS = [100, 210, 2100, 21000]
+const SHOW_PRESETS = [100, 420, 3333, 21000]
 const SHOW_SHARE_TAGLINE = 'Posts a kind 1 note to your followers — your message + a link back here.'
 
 export default function BoostModal({ user, onClose, prefillMessage = '' }) {
