@@ -1,0 +1,18 @@
+[Unit]
+Description=localbitcoiners — periodic bug-relay watcher
+Documentation=file://%h/localbitcoiners/bots/bug-watcher/README.md
+
+[Timer]
+# Wait a beat after boot before the first run so the network is up.
+OnBootSec=2min
+# Then every 10 minutes from the previous run.
+OnUnitActiveSec=10min
+# Smear so multiple machines / sibling watchers don't thunder the relay
+# at the same instant (mynostr's watcher hits the same relay).
+RandomizedDelaySec=30s
+# Run once on wake if the machine was off when the timer would have fired.
+Persistent=true
+Unit=localbitcoiners-bug-watcher.service
+
+[Install]
+WantedBy=timers.target

@@ -15,6 +15,7 @@ import MyMeetupsModal from './components/MyMeetupsModal.jsx'
 import SearchMeetupsModal from './components/SearchMeetupsModal.jsx'
 import BoostExistingMeetupModal from './components/BoostExistingMeetupModal.jsx'
 import CreateMeetupModal from './components/CreateMeetupModal.jsx'
+import BugReportModal from './components/BugReportModal.jsx'
 import {
   loadSession, restoreSession, clearSession,
   saveProfile, loadCachedProfile, clearProfile,
@@ -499,6 +500,32 @@ function MeetupModalHost() {
   return createPortal(body, document.body)
 }
 
+// ── Bug-report modal host ────────────────────────────────────────────────
+const bugReportListeners = new Set()
+let bugReportState = null   // {} when open, null when closed
+function setBugReportState(v) {
+  bugReportState = v || null
+  for (const fn of bugReportListeners) {
+    try { fn(bugReportState) } catch {}
+  }
+}
+
+function BugReportHost() {
+  const user = useSharedUser()
+  const realUser = (user && !isStubUser(user)) ? user : null
+  const [state, setLocalState] = useState(bugReportState)
+  useEffect(() => {
+    const fn = (v) => setLocalState(v)
+    bugReportListeners.add(fn)
+    return () => { bugReportListeners.delete(fn) }
+  }, [])
+  if (!state) return null
+  return createPortal(
+    <BugReportModal user={realUser} onClose={() => setBugReportState(null)} />,
+    document.body,
+  )
+}
+
 // ── Identity slot host ───────────────────────────────────────────────────
 // Mounted into #lb-identity-slot. Reads user state + NWC state and
 // renders the persistent identity widget. All actions wired through the
@@ -564,6 +591,7 @@ const api = {
     createRoot(makeHost('lb-show-boost-host')).render(<ShowBoostHost />)
     createRoot(makeHost('lb-wallet-connect-host')).render(<WalletConnectHost />)
     createRoot(makeHost('lb-meetup-modal-host')).render(<MeetupModalHost />)
+    createRoot(makeHost('lb-bug-report-host')).render(<BugReportHost />)
     createRoot(makeHost('lb-toast-host')).render(<ToastHost />)
     createRoot(makeHost('lb-boost-progress-host')).render(<BoostProgressBanner />)
 
@@ -848,6 +876,27 @@ const api = {
     setMeetupModalState({ kind })
   },
 
+  /**
+   * Open the bug-report modal. Login-required (reports are signed so we
+   * can follow up), so it runs the same gate as openMeetupModal: a
+   * logged-out/restoring click saves the action, opens login, and replays
+   * after login lands.
+   */
+  async openBugReport() {
+    if (!currentUser || currentUser === undefined) {
+      setPendingAction(() => api.openBugReport())
+      api.requestLogin()
+      return
+    }
+    if (isStubUser(currentUser)) {
+      setPendingAction(() => api.openBugReport())
+      ensureRealRestore()
+      return
+    }
+    if (!await ensureSignerVerified()) return
+    setBugReportState({})
+  },
+
   /** Wallet status snapshot for consumers that want to render wallet
    *  state. Now includes a `kind` field ('nwc' | 'webln' | null). */
   getNwcStatus() { return wallet.getStatus() },
@@ -898,9 +947,14 @@ const api = {
 }
 
 if (typeof window !== 'undefined') {
-  window.LBLogin = api
-  document.addEventListener('DOMContentLoaded', () => api.mount())
-  if (document.readyState !== 'loading') api.mount()
+  // Guard against a second bundle injection (e.g. one loader injects it for
+  // a boost while the nav's bug-report trigger injects it again): the first
+  // execution wins, so we never double-mount the React hosts.
+  if (!window.LBLogin) {
+    window.LBLogin = api
+    document.addEventListener('DOMContentLoaded', () => api.mount())
+    if (document.readyState !== 'loading') api.mount()
+  }
 }
 
 export default api

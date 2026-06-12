@@ -589,6 +589,7 @@ function renderEpisodePage(ep) {
               <li><a href="/meetups">Meetups</a></li>
               <li><a href="/#meetups">Resources</a></li>
               <li><a href="/#links">Links</a></li>
+              <li><a href="#" data-lb-bug-trigger>Report a bug</a></li>
             </ul>
           </details>
         </li>
