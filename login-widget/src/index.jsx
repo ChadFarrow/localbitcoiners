@@ -877,23 +877,12 @@ const api = {
   },
 
   /**
-   * Open the bug-report modal. Login-required (reports are signed so we
-   * can follow up), so it runs the same gate as openMeetupModal: a
-   * logged-out/restoring click saves the action, opens login, and replays
-   * after login lands.
+   * Open the bug-report modal. NOT login-gated on purpose — a user who
+   * can't log in (e.g. the bug IS the login) still needs to report it.
+   * The modal signs with the user's key if logged in (attributed), else
+   * with a throwaway key (anonymous) + an optional npub for follow-up.
    */
-  async openBugReport() {
-    if (!currentUser || currentUser === undefined) {
-      setPendingAction(() => api.openBugReport())
-      api.requestLogin()
-      return
-    }
-    if (isStubUser(currentUser)) {
-      setPendingAction(() => api.openBugReport())
-      ensureRealRestore()
-      return
-    }
-    if (!await ensureSignerVerified()) return
+  openBugReport() {
     setBugReportState({})
   },
 

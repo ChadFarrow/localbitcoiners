@@ -37,6 +37,11 @@ Anything else (optional):
 
 `
 
+function shortNpub(npub) {
+  if (!npub || npub.length < 18) return npub || ''
+  return npub.slice(0, 12) + '…' + npub.slice(-6)
+}
+
 function buildContextBlock() {
   const lines = []
   try { lines.push(`Page: ${window.location.href}`) } catch {}
@@ -60,7 +65,10 @@ export default function BugReportModal({ user, onClose }) {
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [contactNpub, setContactNpub] = useState('')
   const taRef = useRef(null)
+
+  const isLoggedIn = !!user?.pubkey
 
   async function handleImageFile(file) {
     if (!file || !file.type?.startsWith('image/')) return
@@ -116,18 +124,27 @@ export default function BugReportModal({ user, onClose }) {
 
   async function handleSubmit() {
     if (submitting) return
-    if (!user?.pubkey) {
-      setError('Sign in first — bug reports are signed by your Nostr key.')
-      return
-    }
     if (!content.trim()) {
       setError('Tell us what went wrong before sending.')
       return
     }
+    let finalContent = content
+    // Logged-out reporters can optionally attribute an npub for follow-up;
+    // logged-in reports are already attributed by their signature.
+    if (!isLoggedIn) {
+      const np = contactNpub.trim()
+      if (np) {
+        if (!/^npub1[0-9a-z]{58}$/.test(np)) {
+          setError('That doesn’t look like an npub — leave it blank or paste a valid npub1…')
+          return
+        }
+        finalContent = `${content}\n\nContact npub (for follow-up): ${np}`
+      }
+    }
     setSubmitting(true)
     setError('')
     try {
-      await publishBugReport(content)
+      await publishBugReport(finalContent)
       setDone(true)
     } catch (e) {
       setError(e?.message || 'Couldn\'t send. Try again in a moment.')
@@ -188,6 +205,24 @@ export default function BugReportModal({ user, onClose }) {
                 </p>
               </div>
 
+              {isLoggedIn ? (
+                <div className="px-4 pb-2 text-[11px] text-neutral-500 shrink-0">
+                  Reporting as <code className="text-neutral-300">{shortNpub(user.npub)}</code>
+                </div>
+              ) : (
+                <div className="px-4 pb-2 shrink-0">
+                  <input
+                    type="text"
+                    value={contactNpub}
+                    onChange={e => { setContactNpub(e.target.value); if (error) setError('') }}
+                    placeholder="Your npub (optional — so we can follow up)"
+                    spellCheck={false}
+                    autoComplete="off"
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded px-3 py-1.5 text-xs text-neutral-100 font-mono focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/30 placeholder:text-neutral-600"
+                  />
+                </div>
+              )}
+
               <div className="flex-1 min-h-0 px-4 pb-3 overflow-y-auto">
                 <textarea
                   ref={taRef}
@@ -223,8 +258,7 @@ export default function BugReportModal({ user, onClose }) {
                 )}
                 <button
                   onClick={handleSubmit}
-                  disabled={submitting || !user?.pubkey}
-                  title={!user?.pubkey ? 'Sign in to report a bug' : ''}
+                  disabled={submitting}
                   className="px-4 py-1.5 rounded bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium text-white transition-colors order-2 sm:order-3"
                 >
                   {submitting ? 'Sending…' : 'Send report'}

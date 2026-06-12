@@ -21,7 +21,7 @@
  *     write-policy plugin (it requires the literal string) AND the
  *     bug-watcher filter.
  */
-import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk'
+import { NDKEvent, NDKRelaySet, NDKPrivateKeySigner } from '@nostr-dev-kit/ndk'
 import { getNDK, signWithTimeout } from './ndk.js'
 import { withTimeout } from './utils.js'
 
@@ -32,25 +32,32 @@ const PUBLISH_TIMEOUT_MS = 10_000
 
 /**
  * Sign + publish a bug report. The modal passes the full text (it already
- * injected browser/page context into the body for the user to review).
- * Throws on signer failure, relay reject, or 10s timeout — the modal
- * surfaces the message inline.
+ * injected browser/page context, and any optional contact npub, into the
+ * body for the user to review).
+ *
+ * Signs with the logged-in user's key when available (so the watcher
+ * attributes the issue to their real npub); otherwise signs with a
+ * single-use throwaway key so a logged-OUT user can still report — the
+ * relay gates on the tag, not the signer. Throws on signer failure, relay
+ * reject, or 10s timeout — the modal surfaces the message inline.
  */
 export async function publishBugReport(content) {
   if (typeof content !== 'string' || !content.trim()) {
     throw new Error('Bug report is empty.')
   }
   const ndk = getNDK()
-  if (!ndk?.signer) {
-    throw new Error('Sign in first — bug reports are signed by your Nostr key so we can follow up.')
-  }
 
   const ev = new NDKEvent(ndk)
   ev.kind    = 1
   ev.content = content
   ev.tags    = [['t', BUG_TAG], ['client', 'localbitcoiners']]
 
-  await signWithTimeout(ev)
+  if (ndk?.signer) {
+    await signWithTimeout(ev)
+  } else {
+    // Anonymous report — a fresh throwaway key, never persisted.
+    await ev.sign(NDKPrivateKeySigner.generate())
+  }
 
   const relaySet = NDKRelaySet.fromRelayUrls([BUG_RELAY], ndk, false)
   const publishedTo = await withTimeout(
