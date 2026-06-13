@@ -1,8 +1,12 @@
 {
-  "generated_at": "2026-06-12T08:46:17Z",
+  "generated_at": "2026-06-13T08:46:33Z",
   "source": "zaps.csv",
-  "row_count": 110,
+  "row_count": 114,
   "rows": [
+    {"settled_at": "2026-06-13T00:57:05Z", "zap_receipt_id": "b11b76f70c03bf558ff91671c6ef10c640bfa5aa34961119d192d6b4da10359d", "zapped_event_id": "52a7e2d105ce8bd88d1b678e94fcc6db3fd3e9031766acdd940aacd0a68f3582", "sender_npub": "npub1f4qf8gnnqjqdd5l748zesc49jj3mz8c9350y3544ajem6s77wsrsrwl37g", "sender_name": null, "sats": 10, "message": "bitcoin solo mining pay with lightning ⚡️"},
+    {"settled_at": "2026-06-12T21:23:59Z", "zap_receipt_id": "0b729b1e410707eaaa1f67f9b8ecc876e975654fe92a52ae7ed5377e95f1af12", "zapped_event_id": "52a7e2d105ce8bd88d1b678e94fcc6db3fd3e9031766acdd940aacd0a68f3582", "sender_npub": "npub1grzq7wnhxmvjdjetln7crn6sa44qexmelmqcl47tczehruejacuslqxjr9", "sender_name": null, "sats": 10, "message": "Zapvertise from 10 sats"},
+    {"settled_at": "2026-06-12T18:53:20Z", "zap_receipt_id": "36b37fe1e1bda49d3ddf18dba0ca4886a7f60c0c546f3f16377397e5adb31aed", "zapped_event_id": "52a7e2d105ce8bd88d1b678e94fcc6db3fd3e9031766acdd940aacd0a68f3582", "sender_npub": "npub1qspus6smkn8mcdxg5jflh50s69vdgtwsd5p74gmjpzp2qekn5duqfv5afj", "sender_name": null, "sats": 10, "message": "nostr:nevent1qqsrkmrnqtnczwl8p2kyturaxl6rv6j9xhcsenc7dchumxjcgxjn59qpzemhxue69uhkummnw3ex2mrfw3jhxtn0wfnj7q3qqspus6smkn8mcdxg5jflh50s69vdgtwsd5p74gmjpzp2qekn5duqxpqqqqqqz73e6lx"},
+    {"settled_at": "2026-06-12T13:05:35Z", "zap_receipt_id": "5f108f62bd160e17f1b5b2a429a49cf157d747024cc6721015e1670a6c1da81f", "zapped_event_id": "26bd1ab4a64dcad712a0736b444624b0e6f6fc5b7686f4756cf7e5c1802ffee0", "sender_npub": "npub1jxh2kga4ve8d4ftahcqtqswvk5z5f7ya0k2kx3dm679hmw4ysesqvt62rj", "sender_name": null, "sats": 5, "message": null},
     {"settled_at": "2026-06-10T23:08:27Z", "zap_receipt_id": "62e24cd57e90a2f2ccdd34df2006471eaf84164db2e4fb4ea7198494297739a7", "zapped_event_id": "2fd91320d5d17a3b5a0cdfb69095601232bf7c4e940315c116aaa362b2d6a368", "sender_npub": "npub1dgpt04w4c88wc0g262xaw8zvlm4mvwtmjhl0tn2sxtyjywsn6q4qt8ka3a", "sender_name": null, "sats": 13, "message": null},
     {"settled_at": "2026-06-10T21:16:22Z", "zap_receipt_id": "909fb4b54f0314dd2fc4ede82fed6d530d35d31439935ec30816fe390aeefeb0", "zapped_event_id": "44ceff85c4692c39f307f2c5774d76a20ea5a57c35744732badf0ae399ff8a28", "sender_npub": "npub1jxh2kga4ve8d4ftahcqtqswvk5z5f7ya0k2kx3dm679hmw4ysesqvt62rj", "sender_name": null, "sats": 5, "message": null},
     {"settled_at": "2026-06-09T12:55:03Z", "zap_receipt_id": "7f027cea4009c736879e4ef6c1307dec48abfa19d24fdd06a6c91bcca63412c7", "zapped_event_id": "2a425b4ca8a0e0b41942da334d49b0289c97ac8f7b0ce85b5f3bfc82f2d0eacf", "sender_npub": "npub1ljswqt5rr5hpd3ee86n4qp9uvqafk233wlsvndxu7sxg8q889fxse79q6n", "sender_name": null, "sats": 42, "message": "Onward 🫡"},
