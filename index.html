@@ -389,10 +389,7 @@
 
     /* ── Hero ── */
     #hero {
-      position: relative;
       width: 100%;
-      max-height: 520px;
-      overflow: hidden;
       background: var(--navy);
     }
     #hero img {
@@ -402,36 +399,42 @@
       object-position: center top;
       display: block;
     }
+    /* Tagline band: sits directly below the banner image (no longer an
+       overlay), so it never lands on top of the banner's own lettering
+       — especially on mobile where the full banner shows uncropped. */
     .hero-overlay {
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(
-        to bottom,
-        rgba(30,58,95,0.15) 0%,
-        rgba(30,58,95,0.55) 65%,
-        rgba(30,58,95,0.80) 100%
-      );
-      display: flex;
-      align-items: flex-end;
-      padding: 2.5rem 2rem;
+      background: var(--navy);
+      padding: 1.1rem 2rem 1.4rem;
+      text-align: center;
     }
     .hero-text {
       max-width: 800px;
+      margin: 0 auto;
     }
     .hero-text h1 {
       font-family: 'Playfair Display', Georgia, serif;
-      font-size: clamp(1.6rem, 4vw, 2.8rem);
+      font-size: clamp(1.5rem, 4vw, 2.6rem);
       font-weight: 700;
       color: var(--white);
       line-height: 1.2;
-      text-shadow: 0 2px 10px rgba(0,0,0,0.4);
     }
     .hero-text p {
       font-size: clamp(0.95rem, 2vw, 1.15rem);
       color: var(--cream);
-      margin-top: 0.5rem;
       font-style: italic;
-      text-shadow: 0 1px 6px rgba(0,0,0,0.4);
+    }
+    /* Visually hidden but kept for SEO + screen readers (the visible
+       wordmark lives in the banner image right above). */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
     }
 
     /* ── Section wrapper ── */
@@ -899,7 +902,7 @@
     }
     @media (max-width: 600px) {
       #hero img { height: auto; max-height: 360px; }
-      .hero-overlay { padding: 1.5rem 1rem; }
+      .hero-overlay { padding: 0.85rem 1rem 1.05rem; }
       .section, .section-wide { padding: 2.5rem 1.1rem; }
       .section-title { font-size: 1.5rem; }
       .episode-card { padding: 1.25rem 1.1rem; }
@@ -966,7 +969,7 @@
   <img src="assets/LocalBitcoiners_banner_YT.jpg" alt="Local Bitcoiners — a Bitcoin meetup culture podcast hosted by Reed and Rev Hodl" />
   <div class="hero-overlay">
     <div class="hero-text">
-      <h1>Local Bitcoiners Podcast</h1>
+      <h1 class="sr-only">Local Bitcoiners Podcast</h1>
       <p>Finding, Building, and Growing Local Bitcoin Meetup Culture</p>
     </div>
   </div>
