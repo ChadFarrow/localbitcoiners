@@ -1,8 +1,10 @@
 {
-  "generated_at": "2026-06-13T08:46:33Z",
+  "generated_at": "2026-06-14T08:46:14Z",
   "source": "zaps.csv",
-  "row_count": 114,
+  "row_count": 116,
   "rows": [
+    {"settled_at": "2026-06-13T18:20:32Z", "zap_receipt_id": "8d6f2abee59bfea26351acdde615c2f2775b7755fde046813d4b9cbca719913f", "zapped_event_id": "470c7ac9c07e4ae2fd00acd26240a40ad66322d9b95b1c2865f536c817dda97b", "sender_npub": "npub1jxh2kga4ve8d4ftahcqtqswvk5z5f7ya0k2kx3dm679hmw4ysesqvt62rj", "sender_name": null, "sats": 5, "message": null},
+    {"settled_at": "2026-06-13T15:38:37Z", "zap_receipt_id": "af7b08d1a85e1da61b2e6ffb6e53774fa9c2b98a6e5c6aaf637abfd6dd87f227", "zapped_event_id": "f2aad84805e320cf9490c5dc0da9094572849d4d96b92338cf9f8de1f033116c", "sender_npub": "npub1uzt238htjzpq39dxmltlx60vxym9fetk9czz6kddq6fhvkf4z3usy9qtrh", "sender_name": null, "sats": 10, "message": null},
     {"settled_at": "2026-06-13T00:57:05Z", "zap_receipt_id": "b11b76f70c03bf558ff91671c6ef10c640bfa5aa34961119d192d6b4da10359d", "zapped_event_id": "52a7e2d105ce8bd88d1b678e94fcc6db3fd3e9031766acdd940aacd0a68f3582", "sender_npub": "npub1f4qf8gnnqjqdd5l748zesc49jj3mz8c9350y3544ajem6s77wsrsrwl37g", "sender_name": null, "sats": 10, "message": "bitcoin solo mining pay with lightning ⚡️"},
     {"settled_at": "2026-06-12T21:23:59Z", "zap_receipt_id": "0b729b1e410707eaaa1f67f9b8ecc876e975654fe92a52ae7ed5377e95f1af12", "zapped_event_id": "52a7e2d105ce8bd88d1b678e94fcc6db3fd3e9031766acdd940aacd0a68f3582", "sender_npub": "npub1grzq7wnhxmvjdjetln7crn6sa44qexmelmqcl47tczehruejacuslqxjr9", "sender_name": null, "sats": 10, "message": "Zapvertise from 10 sats"},
     {"settled_at": "2026-06-12T18:53:20Z", "zap_receipt_id": "36b37fe1e1bda49d3ddf18dba0ca4886a7f60c0c546f3f16377397e5adb31aed", "zapped_event_id": "52a7e2d105ce8bd88d1b678e94fcc6db3fd3e9031766acdd940aacd0a68f3582", "sender_npub": "npub1qspus6smkn8mcdxg5jflh50s69vdgtwsd5p74gmjpzp2qekn5duqfv5afj", "sender_name": null, "sats": 10, "message": "nostr:nevent1qqsrkmrnqtnczwl8p2kyturaxl6rv6j9xhcsenc7dchumxjcgxjn59qpzemhxue69uhkummnw3ex2mrfw3jhxtn0wfnj7q3qqspus6smkn8mcdxg5jflh50s69vdgtwsd5p74gmjpzp2qekn5duqxpqqqqqqz73e6lx"},
