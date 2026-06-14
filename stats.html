@@ -13,7 +13,6 @@
     img-src 'self' data: https:;
     font-src 'self' data:;
     connect-src 'self' https: wss:;
-    frame-ancestors 'none';
     base-uri 'self';
     form-action 'self';
     object-src 'none';
@@ -237,6 +236,9 @@
       background: rgba(94,125,58,0.18);
       color: var(--green-d);
     }
+    /* Active page now lives in the dropdown — highlight "More" + the item. */
+    .nav-more.is-active > summary { background: rgba(94,125,58,0.18); color: var(--green-d); }
+    .nav-more-menu a.active { color: var(--green-d); }
 
     /* ── Page header ── */
     .page-header {
@@ -634,11 +636,12 @@
       <ul>
         <li><a href="/boosts.html">Boosts</a></li>
         <li><a href="/supporters">Supporters</a></li>
-        <li><a href="/stats.html" class="active">Stats</a></li>
+        <li><a href="/merch.html">Merch</a></li>
         <li>
-          <details class="nav-more">
+          <details class="nav-more is-active">
             <summary>More <span class="caret" aria-hidden="true">▾</span></summary>
             <ul class="nav-more-menu">
+              <li><a href="/stats.html" class="active">Stats</a></li>
               <li><a href="/meetups">Meetups</a></li>
               <li><a href="/#meetups">Resources</a></li>
               <li><a href="/#links">Links</a></li>

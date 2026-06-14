@@ -11,9 +11,11 @@
        — without it, every relay connect throws EvalError and the whole
        Nostr layer (login, boosts, identity, NWC) breaks. The harder
        wins are (a) `script-src 'self'` (no more remote CDN imports —
-       the vendored nostr-tools bundle replaced esm.sh), and (b)
-       `frame-ancestors 'none'` (no clickjacking). Trim `unsafe-inline`
-       later by hashing the inline blocks. connect-src is permissive
+       the vendored nostr-tools bundle replaced esm.sh). Clickjacking
+       protection lives in `_headers` (`frame-ancestors`) + `X-Frame-Options`
+       — `frame-ancestors` is ignored in a <meta> tag, so it's not here.
+       Trim `unsafe-inline` later by hashing the inline blocks. connect-src
+       is permissive
        (`https:` + `wss:`) because LNURL endpoints + Nostr relays are
        arbitrary by design. -->
   <meta http-equiv="Content-Security-Policy" content="
@@ -23,7 +25,6 @@
     img-src 'self' data: https:;
     font-src 'self' data:;
     connect-src 'self' https: wss:;
-    frame-ancestors 'none';
     base-uri 'self';
     form-action 'self';
     object-src 'none';
@@ -928,11 +929,12 @@
       <ul>
         <li><a href="boosts.html">Boosts</a></li>
         <li><a href="/supporters">Supporters</a></li>
-        <li><a href="stats.html">Stats</a></li>
+        <li><a href="/merch.html">Merch</a></li>
         <li>
           <details class="nav-more">
             <summary>More <span class="caret" aria-hidden="true">▾</span></summary>
             <ul class="nav-more-menu">
+              <li><a href="/stats.html">Stats</a></li>
               <li><a href="/meetups">Meetups</a></li>
               <li><a href="#meetups">Resources</a></li>
               <li><a href="#links">Links</a></li>

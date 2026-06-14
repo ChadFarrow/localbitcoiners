@@ -895,6 +895,36 @@ const api = {
   onNwcChange(fn) { return wallet.onChange(fn) },
 
   /**
+   * Pay a bolt11 invoice with the user's connected wallet (NWC or
+   * WebLN), the same facade the boost flow uses. Attempts an at-rest
+   * wallet restore first; if no wallet is connectable, opens the
+   * wallet-connect modal and throws a `NO_WALLET` error so the caller
+   * can prompt and retry. Returns `{ preimage, kind }` — preimage may
+   * be null on backends that don't surface it.
+   *
+   * The merch checkout (Gamma/NIP-99) is the first external consumer;
+   * boosts pay through payAllLegs internally rather than this method.
+   */
+  async payInvoice(invoice) {
+    if (typeof invoice !== 'string' || !invoice) throw new Error('Missing invoice')
+    if (!currentUser || currentUser === undefined) {
+      this.requestLogin()
+      throw new Error('Sign in with Nostr first')
+    }
+    if (isStubUser(currentUser)) throw new Error('Session still restoring — try again in a moment')
+    await wallet.ensureReady(currentUser).catch(() => {})
+    if (!wallet.isReady()) {
+      this.openWalletConnect()
+      const err = new Error('Connect a Lightning wallet to pay')
+      err.code = 'NO_WALLET'
+      throw err
+    }
+    const active = wallet.getActiveWallet()
+    const res = await active.payInvoice({ invoice })
+    return { preimage: res?.preimage || null, kind: active.kind }
+  },
+
+  /**
    * Sign a raw event template using the current user's signer.
    * Throws if no user is logged in.
    */

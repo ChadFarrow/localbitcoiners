@@ -10,7 +10,12 @@
 //   transient network blip instead of failing the whole resource load)
 // - Cross-origin (fonts on first deploy, Nostr relays, third-party): pass through
 
-const VERSION = 'lb-v12';
+// v13: merch storefront added. Bumped (not strictly needed for SWR
+// assets) specifically to evict the old stale-while-revalidate copy of
+// /assets/widgets/nostr-tools.js — merch.js imports the new nip59 +
+// getEventHash exports, and a returning visitor's cached bundle predates
+// them, which would fail the ES module link on first merch.html load.
+const VERSION = 'lb-v13';
 const STATIC_CACHE = `${VERSION}-static`;
 const HTML_CACHE = `${VERSION}-html`;
 const WIDGET_CACHE = `${VERSION}-widgets`;
