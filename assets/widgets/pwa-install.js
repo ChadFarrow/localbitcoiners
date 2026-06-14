@@ -127,7 +127,7 @@
     wrap.style.cssText =
       'position:fixed;left:12px;right:12px;bottom:max(12px, env(safe-area-inset-bottom, 12px));' +
       'z-index:88;padding:14px 16px;border-radius:12px;' +
-      'background:linear-gradient(180deg,#1e3a5f 0%,#15294a 100%);' +
+      'background:linear-gradient(180deg,#211b17 0%,#15110e 100%);' +
       'color:#f5eedc;border:1px solid rgba(247,147,26,0.55);' +
       'box-shadow:0 18px 50px -12px rgba(0,0,0,0.7),0 0 0 1px rgba(255,255,255,0.04);' +
       'font:500 14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;' +

@@ -26,7 +26,7 @@
 
   <!-- PWA -->
   <link rel="manifest" href="/manifest.webmanifest" />
-  <meta name="theme-color" content="#1e3a5f" />
+  <meta name="theme-color" content="#3a3125" />
   <link rel="apple-touch-icon" href="/assets/LocalBitcoiners.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -81,8 +81,10 @@
     :root {
       --cream:   #f5eedc;
       --cream-d: #ede3c8;
-      --navy:    #1e3a5f;
-      --navy-l:  #2c5282;
+      --navy:    #3a3125;
+      --navy-l:  #3a2f28;
+      --green:   #5e7d3a;
+      --green-d: #46602c;
       --orange:  #f7931a;
       --orange-d:#d97b0e;
       --text:    #2d2010;
@@ -119,8 +121,8 @@
       font-size: 17px;
     }
 
-    a { color: var(--navy); text-decoration: underline; text-underline-offset: 3px; }
-    a:hover { color: var(--orange); }
+    a { color: var(--green-d); text-decoration: underline; text-underline-offset: 3px; }
+    a:hover { color: var(--green-d); }
 
     img { display: block; max-width: 100%; }
 
@@ -147,7 +149,7 @@
       height: 44px;
       border-radius: 50%;
       overflow: hidden;
-      border: 2px solid var(--orange);
+      border: 2px solid var(--green-d);
     }
     .nav-logo img { width: 100%; height: 100%; object-fit: cover; }
     .nav-site-name {
@@ -159,7 +161,7 @@
       text-decoration: none;
       flex: 1;
     }
-    .nav-site-name:hover { color: var(--orange); }
+    .nav-site-name:hover { color: var(--green-d); }
     nav ul { list-style: none; display: flex; gap: 0.25rem; }
     nav ul li a {
       color: var(--cream-d);
@@ -172,8 +174,8 @@
       border-radius: 4px;
       transition: background 0.15s, color 0.15s;
     }
-    nav ul li a:hover { background: rgba(247,147,26,0.18); color: var(--orange); }
-    nav ul li a.active { color: var(--orange); }
+    nav ul li a:hover { background: rgba(94,125,58,0.18); color: var(--green-d); }
+    nav ul li a.active { color: var(--green-d); }
 
     /* "More ▾" dropdown — secondary nav links live here. */
     .nav-more { position: relative; }
@@ -197,8 +199,8 @@
     .nav-more > summary::marker { content: ''; }
     .nav-more > summary:hover,
     .nav-more[open] > summary {
-      background: rgba(247,147,26,0.18);
-      color: var(--orange);
+      background: rgba(94,125,58,0.18);
+      color: var(--green-d);
     }
     .nav-more .caret { font-size: 0.7em; transition: transform 0.15s; }
     .nav-more[open] .caret { transform: rotate(180deg); }
@@ -232,8 +234,8 @@
       transition: background 0.12s, color 0.12s;
     }
     .nav-more-menu a:hover {
-      background: rgba(247,147,26,0.18);
-      color: var(--orange);
+      background: rgba(94,125,58,0.18);
+      color: var(--green-d);
     }
 
     /* ── Page header ── */
@@ -282,7 +284,7 @@
       display: inline-block;
       width: 36px; height: 36px;
       border: 3px solid var(--border);
-      border-top-color: var(--orange);
+      border-top-color: var(--green-d);
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
       margin-bottom: 1rem;
@@ -302,7 +304,7 @@
       font-weight: 700;
       color: var(--navy);
       display: inline-block;
-      border-bottom: 3px solid var(--orange);
+      border-bottom: 3px solid var(--green);
       padding-bottom: 0.35rem;
     }
     .stats-chart-sub {
@@ -330,8 +332,8 @@
       cursor: pointer;
       transition: background 0.15s, border-color 0.15s;
     }
-    .stats-chart-opt:hover { border-color: var(--orange); }
-    .stats-chart-opt input { accent-color: var(--orange); margin: 0; cursor: pointer; }
+    .stats-chart-opt:hover { border-color: var(--green-d); }
+    .stats-chart-opt input { accent-color: var(--green-d); margin: 0; cursor: pointer; }
     .stats-chart-canvas {
       margin-top: 1.1rem;
       background: var(--white);
@@ -561,7 +563,7 @@
     .stats-prenostr-ep {
       font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em;
       text-transform: uppercase; color: var(--white);
-      background: var(--orange); border-radius: 999px;
+      background: var(--green-d); border-radius: 999px;
       padding: 0.15rem 0.55rem; white-space: nowrap;
     }
 
@@ -591,7 +593,7 @@
     [data-stats-zappers]   .ep-supporter-name { font-size: 0.92rem; }
     /* ── Footer (mirrors index.html) ── */
     footer {
-      background: #12253f;
+      background: #2b231a;
       color: var(--muted);
       text-align: center;
       padding: 2rem 1.5rem;

@@ -27,7 +27,7 @@
 
   <!-- PWA -->
   <link rel="manifest" href="/manifest.webmanifest" />
-  <meta name="theme-color" content="#1e3a5f" />
+  <meta name="theme-color" content="#3a3125" />
   <link rel="apple-touch-icon" href="/assets/LocalBitcoiners.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -71,8 +71,10 @@
     :root {
       --cream:   #f5eedc;
       --cream-d: #ede3c8;
-      --navy:    #1e3a5f;
-      --navy-l:  #2c5282;
+      --navy:    #3a3125;
+      --navy-l:  #3a2f28;
+      --green:   #5e7d3a;
+      --green-d: #46602c;
       --orange:  #f7931a;
       --orange-d:#d97b0e;
       --text:    #2d2010;
@@ -90,8 +92,8 @@
       line-height: 1.65;
       font-size: 17px;
     }
-    a { color: var(--navy); text-decoration: underline; text-underline-offset: 3px; }
-    a:hover { color: var(--orange); }
+    a { color: var(--green-d); text-decoration: underline; text-underline-offset: 3px; }
+    a:hover { color: var(--green-d); }
     img { display: block; max-width: 100%; }
 
     /* ── Nav (mirrors index.html / boosts.html) ── */
@@ -116,7 +118,7 @@
       width: 44px; height: 44px;
       border-radius: 50%;
       overflow: hidden;
-      border: 2px solid var(--orange);
+      border: 2px solid var(--green-d);
     }
     .nav-logo img { width: 100%; height: 100%; object-fit: cover; }
     .nav-site-name {
@@ -128,7 +130,7 @@
       text-decoration: none;
       flex: 1;
     }
-    .nav-site-name:hover { color: var(--orange); }
+    .nav-site-name:hover { color: var(--green-d); }
     nav ul { list-style: none; display: flex; gap: 0.25rem; }
     nav ul li a {
       color: var(--cream-d);
@@ -141,8 +143,8 @@
       border-radius: 4px;
       transition: background 0.15s, color 0.15s;
     }
-    nav ul li a:hover { background: rgba(247,147,26,0.18); color: var(--orange); }
-    nav ul li a.active { color: var(--orange); }
+    nav ul li a:hover { background: rgba(94,125,58,0.18); color: var(--green-d); }
+    nav ul li a.active { color: var(--green-d); }
 
     /* "More ▾" dropdown — secondary nav links live here. */
     .nav-more { position: relative; }
@@ -166,8 +168,8 @@
     .nav-more > summary::marker { content: ''; }
     .nav-more > summary:hover,
     .nav-more[open] > summary {
-      background: rgba(247,147,26,0.18);
-      color: var(--orange);
+      background: rgba(94,125,58,0.18);
+      color: var(--green-d);
     }
     .nav-more .caret { font-size: 0.7em; transition: transform 0.15s; }
     .nav-more[open] .caret { transform: rotate(180deg); }
@@ -201,8 +203,8 @@
       transition: background 0.12s, color 0.12s;
     }
     .nav-more-menu a:hover {
-      background: rgba(247,147,26,0.18);
-      color: var(--orange);
+      background: rgba(94,125,58,0.18);
+      color: var(--green-d);
     }
 
     #lb-boost-slot {
@@ -318,7 +320,7 @@
     .boost-bar {
       background: var(--white);
       border: 1px solid var(--border);
-      border-left: 4px solid var(--orange);
+      border-left: 4px solid var(--green);
       border-radius: 10px;
       box-shadow: 0 2px 8px rgba(30, 58, 95, 0.06);
       overflow: hidden;
@@ -391,7 +393,7 @@
     }
     .boost-bar-btn:hover {
       background: #ffffff;
-      border-color: var(--orange);
+      border-color: var(--green);
     }
     .boost-bar-btn:disabled {
       opacity: 0.55;
@@ -477,7 +479,7 @@
 
     /* ── Footer ── */
     footer {
-      background: #12253f;
+      background: #2b231a;
       color: var(--muted);
       text-align: center;
       padding: 2rem 1.5rem;

@@ -37,8 +37,10 @@ html, body { overflow-x: hidden; max-width: 100vw; }
 :root {
   --cream:   #f5eedc;
   --cream-d: #ede3c8;
-  --navy:    #1e3a5f;
-  --navy-l:  #2c5282;
+  --navy:    #3a3125;
+  --navy-l:  #3a2f28;
+  --green:   #5e7d3a;
+  --green-d: #46602c;
   --orange:  #f7931a;
   --orange-d:#d97b0e;
   --text:    #2d2010;
@@ -60,8 +62,8 @@ body {
   flex-direction: column;
 }
 
-a { color: var(--navy); text-decoration: underline; text-underline-offset: 3px; }
-a:hover { color: var(--orange); }
+a { color: var(--green-d); text-decoration: underline; text-underline-offset: 3px; }
+a:hover { color: var(--green-d); }
 
 img { display: block; max-width: 100%; }
 
@@ -88,7 +90,7 @@ img { display: block; max-width: 100%; }
   height: 44px;
   border-radius: 50%;
   overflow: hidden;
-  border: 2px solid var(--orange);
+  border: 2px solid var(--green-d);
   text-decoration: none;
 }
 .nav-logo img { width: 100%; height: 100%; object-fit: cover; }
@@ -101,7 +103,7 @@ img { display: block; max-width: 100%; }
   text-decoration: none;
   flex: 1;
 }
-.nav-site-name:hover { color: var(--orange); }
+.nav-site-name:hover { color: var(--green-d); }
 nav ul {
   list-style: none;
   display: flex;
@@ -119,8 +121,8 @@ nav ul li a {
   transition: background 0.15s, color 0.15s;
 }
 nav ul li a:hover {
-  background: rgba(247,147,26,0.18);
-  color: var(--orange);
+  background: rgba(94,125,58,0.18);
+  color: var(--green-d);
 }
 /* Nav stays single-row at desktop. Below ~760px the main link list
    wraps under the logo/name + boost/identity slots; below 720px the
@@ -160,8 +162,8 @@ nav ul li a:hover {
 .nav-more > summary::marker { content: ''; }
 .nav-more > summary:hover,
 .nav-more[open] > summary {
-  background: rgba(247,147,26,0.18);
-  color: var(--orange);
+  background: rgba(94,125,58,0.18);
+  color: var(--green-d);
 }
 .nav-more .caret { font-size: 0.7em; transition: transform 0.15s; }
 .nav-more[open] .caret { transform: rotate(180deg); }
@@ -195,8 +197,8 @@ nav ul li a:hover {
   transition: background 0.12s, color 0.12s;
 }
 .nav-more-menu a:hover {
-  background: rgba(247,147,26,0.18);
-  color: var(--orange);
+  background: rgba(94,125,58,0.18);
+  color: var(--green-d);
 }
 
 /* ── Main + card ───────────────────────────────────────────────── */
@@ -217,7 +219,7 @@ nav ul li a:hover {
 .ep-card + .ep-card { margin-top: 0.85rem; }
 .ep-num {
   display: inline-block;
-  background: var(--orange);
+  background: var(--green-d);
   color: var(--white);
   font-size: 0.78rem;
   font-weight: 700;
@@ -349,8 +351,8 @@ nav ul li a:hover {
   transition: background 0.12s, color 0.12s;
 }
 .ep-subscribe-menu a:hover {
-  background: rgba(247, 147, 26, 0.10);
-  color: var(--orange);
+  background: rgba(94,125,58,0.10);
+  color: var(--green-d);
 }
 
 /* ── Shownotes disclosure (banner strip at the bottom of the player card) ─
@@ -386,7 +388,7 @@ nav ul li a:hover {
 .ep-shownotes-summary::marker { content: ''; }
 .ep-shownotes-summary:hover {
   background: var(--cream);
-  color: var(--orange);
+  color: var(--green-d);
 }
 .ep-shownotes-caret {
   font-size: 0.85rem;
@@ -460,8 +462,8 @@ nav ul li a:hover {
 }
 .person-link:hover {
   background: var(--white);
-  border-color: var(--orange);
-  color: var(--orange);
+  border-color: var(--green-d);
+  color: var(--green-d);
 }
 .person-avatar {
   display: inline-block;
@@ -492,7 +494,7 @@ nav ul li a:hover {
   font-size: 1.25rem;
   font-weight: 700;
   color: var(--navy);
-  border-bottom: 2px solid var(--orange);
+  border-bottom: 2px solid var(--green);
   display: inline-block;
   padding-bottom: 0.35rem;
 }
@@ -521,8 +523,8 @@ nav ul li a:hover {
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
 }
-.ep-chart-opt:hover { border-color: var(--orange); }
-.ep-chart-opt input { accent-color: var(--orange); margin: 0; cursor: pointer; }
+.ep-chart-opt:hover { border-color: var(--green-d); }
+.ep-chart-opt input { accent-color: var(--green-d); margin: 0; cursor: pointer; }
 .ep-chart-canvas { margin-top: 1rem; }
 .ep-chart-svg { width: 100%; height: auto; display: block; }
 .ep-chart-grid { stroke: var(--border); stroke-width: 1; }
@@ -559,7 +561,7 @@ nav ul li a:hover {
   color: var(--navy);
   margin-bottom: 0.85rem;
   padding-bottom: 0.4rem;
-  border-bottom: 2px solid var(--orange);
+  border-bottom: 2px solid var(--green);
   display: inline-block;
 }
 .ep-boosts-status {
@@ -592,7 +594,7 @@ nav ul li a:hover {
   color: var(--navy);
   margin-bottom: 0.4rem;
   padding-bottom: 0.4rem;
-  border-bottom: 2px solid var(--orange);
+  border-bottom: 2px solid var(--green);
   display: inline-block;
 }
 .ep-supporter-sub {
