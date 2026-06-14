@@ -10,7 +10,7 @@
 //   transient network blip instead of failing the whole resource load)
 // - Cross-origin (fonts on first deploy, Nostr relays, third-party): pass through
 
-const VERSION = 'lb-v11';
+const VERSION = 'lb-v12';
 const STATIC_CACHE = `${VERSION}-static`;
 const HTML_CACHE = `${VERSION}-html`;
 const WIDGET_CACHE = `${VERSION}-widgets`;
@@ -51,8 +51,12 @@ self.addEventListener('install', (event) => {
     caches.open(STATIC_CACHE).then((cache) =>
       // Best-effort precache: don't fail install if one asset is missing
       Promise.all(
+        // { cache: 'reload' } forces each precache fetch past the browser
+        // HTTP cache, so a VERSION bump re-pulls genuinely fresh assets
+        // (e.g. images replaced under the same filename) instead of
+        // re-caching a stale copy the browser already had.
         PRECACHE_URLS.map((url) =>
-          cache.add(url).catch(() => {})
+          cache.add(new Request(url, { cache: 'reload' })).catch(() => {})
         )
       )
     ).then(() => self.skipWaiting())
