@@ -339,7 +339,7 @@
         BUCKETS = [
           { k: 'costs',    cls: 'stats-band-costs',    label: 'Costs' },
           { k: 'fountain', cls: 'stats-band-fountain', label: 'Fountain' },
-          { k: 'aquafox',  cls: 'stats-band-adbudget', label: 'Ad Budget' },
+          { k: 'aquafox',  cls: 'stats-band-adbudget', label: 'V4V Budget' },
           { k: 'guests',   cls: 'stats-band-guests',   label: 'Guests' },
           { k: 'reed',     cls: 'stats-band-reed',     label: 'Reed' },
           { k: 'rev',      cls: 'stats-band-rev',      label: 'Rev' },
