@@ -1033,8 +1033,8 @@ def _classify_castamatic_boost(tx, parsed, payment_hash, settled_at, our_msats, 
     the website-boost path uses, with the `lb_episode_ids.json` map as a
     second-tier fallback (keyed on `Ep. NNN` extracted from `item_title`).
 
-    No `message` field — Castamatic doesn't expose donor messages publicly,
-    so the boost note's 💬 line is omitted. `source` stays "fountain_boost"
+    Donor `message` comes from the JSON (full text), falling back to the
+    BOLT11 LNURL-comment if the fetch fails. `source` stays "fountain_boost"
     so downstream aggregation flows are unchanged; `app_name` is set to
     "Castamatic" (or whatever the JSON's `app_name` says) for accurate
     display."""
@@ -1056,6 +1056,16 @@ def _classify_castamatic_boost(tx, parsed, payment_hash, settled_at, our_msats, 
     item_title  = boost_data.get("item_title")
     item_guid   = boost_data.get("item_guid", "")
     app_name    = boost_data.get("app_name") or "Castamatic"
+
+    # Donor message. Castamatic DOES expose it — both in the JSON `message`
+    # field and (truncation aside) in the BOLT11 LNURL-comment that
+    # parse_description already pulled into parsed["message"]. Prefer the
+    # JSON (full, untruncated); fall back to the description so a failed
+    # Castamatic fetch (boost_data == {}) still recovers the memo. Same
+    # `undefined` → placeholder handling the keysend / Fountain paths use.
+    message = boost_data.get("message") or parsed.get("message", "") or ""
+    if message.strip().lower() == "undefined":
+        message = NO_COMMENT_PLACEHOLDER
 
     # Map item_guid → Fountain page id via the existing RSS index. Same
     # lookup the website-boost path uses; reuses the cache.
@@ -1100,7 +1110,7 @@ def _classify_castamatic_boost(tx, parsed, payment_hash, settled_at, our_msats, 
     info.update({
         "sender_npub":    None,
         "sender_name":    sender_name,
-        "message":        "",   # Castamatic doesn't expose donor messages
+        "message":        message,
         "episode_id":     episode_id,
         "episode_title":  item_title,
         "episode_url":    episode_url,
