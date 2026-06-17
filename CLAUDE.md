@@ -31,6 +31,39 @@ Watch the subtle invariants that aren't always visible from the code
 wrong publish can't be undone, so when a code change feeds the publish
 path, double-check those before you let it run.
 
+## How incoming boosts get classified (donor message, app name)
+
+`bots/shared/boost_formatter.py` normalizes every incoming Lightning payment
+into a unified note. Where the donor **message** and **app name** come from
+depends on how the app paid:
+
+- **keysend** (e.g. PodcastGuru, CurioCaster, Podcast Index's WebLN player):
+  message and `app_name` come straight off the boostagram TLV record
+  (`appName` / `message`).
+- **BOLT11 to a Lightning address** (the `rss::payment::boost <url> <comment>`
+  convention) is dispatched by URL host in `_classify_fountain_boost`:
+  - `fountain.fm` → full message + sender via the Fountain comments API.
+  - `castamatic.com/boost/<uuid>` → fetch the URL's JSON for message, sender,
+    and episode (`_classify_castamatic_boost`); prefers the JSON `message`
+    field, falling back to the inline LNURL comment.
+  - `tardbox.com/boost/` → scrape the HTML boost page.
+  - **any other host → generic fallback that hardcodes `app_name = "Fountain"`**
+    and runs the Fountain API lookup (a no-op for non-Fountain apps). The inline
+    comment message survives, but the app is mislabeled "via Fountain". Latent
+    gap: no app currently hits it (PodcastGuru uses keysend, Castamatic uses a
+    handled host), but a new app paying a Lightning address would be
+    misattributed until it gets its own host branch.
+
+When adding support for a new app's boosts, first determine whether it arrives
+via keysend or BOLT11 — that decides whether you touch the boostagram path or
+add a host branch in `_classify_fountain_boost`.
+
+Verified end-to-end (donor message posts correctly) on 2026-06-17: Fountain,
+Castamatic (after fix `2863201`), PodcastGuru, CurioCaster, and Podcast Index
+(WebLN → keysend). The keysend apps all share one app-agnostic path, so new
+keysend apps generally work with no changes; the only untested risk remains a
+new app paying a Lightning address via BOLT11 (the "via Fountain" fallback).
+
 ## Bot infrastructure documentation
 
 The detailed bot infrastructure notes live in `bots/CLAUDE.md` (gitignored,
